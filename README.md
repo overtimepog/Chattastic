@@ -5,7 +5,7 @@ Chattastic is an innovative tool designed for Twitch streamers and moderators. I
 
 ## Features
 - **Twitch Authentication:** Secure login using Twitch credentials.
-- **Viewer Interaction:** Pick random viewers from your chat for special interactions.
+- **Viewer Interaction:** Pick random or specific viewers from your chat for special interactions.
 - **Text-to-Speech:** Read viewer messages aloud using TTS.
 
 ## Installation
