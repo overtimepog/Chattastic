@@ -563,9 +563,13 @@ def update_viewers_list_callback():
 #clear random viewer selection
 def clear_random_viewer_callback():
     dpg.set_value(display, "")
+    #remove the bullet
+    dpg.configure_item(display, bullet=False)
 
 def clear_specific_viewer_callback():
     dpg.set_value(viewer_selection_id, "")
+    #remove the bullet
+    dpg.configure_item(viewer_selection_id, bullet=False)
     
 
 initialize_authentication_status()
