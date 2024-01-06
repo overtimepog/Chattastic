@@ -17,7 +17,7 @@ Chattastic is an innovative tool designed for Twitch streamers and moderators. I
    ```
 3. **Clone the Repository:** Use Git to clone the Chattastic repo to your local machine.
     ```sh
-    git clone [Chattastic Repository URL]
+    git clone https://github.com/overtimepog/Chattastic.git
     ```
 
 ## Contributions
