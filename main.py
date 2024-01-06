@@ -37,6 +37,8 @@ selected_channel = ""
 # Variable to store the selected random viewer
 selected_viewer = ""
 
+viewers_list = []
+
 global sock
 sock = None
 
@@ -66,7 +68,7 @@ def speak_message(message, username, subtitle):
     #analyze_and_visualize(tts_filename, username, subtitle)
 
     # Clean up the temporary file after some delay
-    time.sleep(10)  # Adjust the delay as needed
+    #time.sleep(10)  # Adjust the delay as needed
     os.remove(tts_filename)
 
 def visualize_in_separate_window(audio_file, username, subtitle):
@@ -251,9 +253,9 @@ def get_random_chatter(channel_name, moderator_id, token, client_id):
         except json.JSONDecodeError:
             simplified_error_message = "Failed to parse error message"
 
-        dpg.set_value(display, f"Error: {simplified_error_message}")
+        dpg.set_value(error_display, f"Error: {simplified_error_message}")
         #set the color of the error message to red
-        dpg.configure_item(display, color=[255, 0, 0])
+        dpg.configure_item(error_display, color=[255, 0, 0])
         clear_error_message()
         return None
 
@@ -303,7 +305,7 @@ def pick_random_viewer_callback():
     user_id = load_tokens()['user_id']
     
     # Retrieve the channel name from the input field
-    channel_name = dpg.get_value(channel_name_input)
+    channel_name = dpg.get_value(user_data)
     print(channel_name)
     
     # Update the selected_channel variable
@@ -365,10 +367,11 @@ def connect_to_twitch():
             print(f"Error closing socket: {e}")
     access_token = load_tokens()['access_token']
     user_name = load_tokens()['user_name']
-    channel_namestr = dpg.get_value(channel_name_input)
+    channel_namestr = dpg.get_value(user_data)
     channel_nameLow = str(channel_namestr).lower()
     channel_name = "#" + channel_nameLow
     sel_viewer = dpg.get_value(display)
+    sel_viewer = dpg.get_value(viewer_selection_id)
 
     # Check if selected_viewer is not empty and tts_box is checked
     if sel_viewer and dpg.get_value(tts_box):
@@ -391,8 +394,13 @@ def connect_to_twitch():
 def receive_messages(sock):
     global sel_viewer
     sel_viewer = dpg.get_value(display)
+    sel_viewer = dpg.get_value(viewer_selection_id)
     if sock is None:
         print("Socket is None, not receiving messages.")
+        return
+    
+    if sel_viewer is None:
+        print("Viewer is None, not receiving messages.")
         return
 
     try:
@@ -462,9 +470,102 @@ def initialize_authentication_status():
 
 def clear_error_message():
     # Wait for 5 seconds
-    threading.Timer(10.0, lambda: dpg.set_value(display, "")).start()
+    threading.Timer(10.0, lambda: dpg.set_value(error_display, "")).start()
     #clear the bullet
-    threading.Timer(10.0, lambda: dpg.configure_item(display, bullet=False)).start()
+    threading.Timer(10.0, lambda: dpg.configure_item(error_display, bullet=False)).start()
+
+def select_manual_viewer_callback():
+    selected_viewer = dpg.get_value(viewer_selection_id)
+    print(f"Manually selected viewer: {selected_viewer}")
+    access_token = load_tokens()['access_token']
+    user_id = load_tokens()['user_id']
+    
+    # Retrieve the channel name from the input field
+    channel_name = dpg.get_value(user_data)
+    print(channel_name)
+    
+    # Update the selected_channel variable
+    selected_channel = channel_name
+    
+    # Check the states of the checkboxes
+    vip_only = dpg.get_value(vip_box)
+    mod_only = dpg.get_value(mod_box)
+    sub_only = dpg.get_value(sub_box)
+    follower_only = dpg.get_value(follower_box)
+    tts_enabled = dpg.get_value(tts_box)
+
+    if vip_only:
+        pass
+        # Logic to pick from VIPs only
+        # Call a different function with appropriate parameters
+        # Example: get_random_vip_chatter(selected_channel, user_id, access_token, CLIENT_ID)
+    elif mod_only:
+        pass
+        # Logic to pick from Mods only
+        # Call a different function with appropriate parameters
+        # Example: get_random_mod_chatter(selected_channel, user_id, access_token, CLIENT_ID)
+    elif sub_only:
+        pass
+        # Logic to pick from Subs only
+        # Call a different function with appropriate parameters
+        # Example: get_random_sub_chatter(selected_channel, user_id, access_token, CLIENT_ID)
+    elif follower_only:
+        pass
+        # Logic to pick from Followers only
+        # Call a different function with appropriate parameters
+        # Example: get_random_follower_chatter(selected_channel, user_id, access_token, CLIENT_ID)
+    else:
+        # Default logic (pick from all chatters)
+        update_viewers_list(selected_channel, user_id, access_token, CLIENT_ID)
+
+    #check if a socket is already open
+    if tts_enabled:
+        try:
+            sock.close()
+            print("Socket closed")
+        except:
+            pass
+        start_streaming()
+
+
+def update_viewers_list(channel_name, user_id, token, client_id):
+    global viewers_list
+
+    broadcaster_id = get_broadcaster_id(client_id, token, channel_name)
+    moderator_id = user_id
+    chatters_url = f'https://api.twitch.tv/helix/chat/chatters?broadcaster_id={broadcaster_id}&moderator_id={moderator_id}'
+
+    headers = {
+        'Authorization': f'Bearer {token}',
+        'Client-Id': client_id
+    }
+
+    chatters_resp = requests.get(chatters_url, headers=headers)
+    if chatters_resp.status_code == 200:
+        chatters_data = chatters_resp.json()
+        viewers_list = [chatter['user_name'] for chatter in chatters_data.get('data', [])]
+        dpg.configure_item(viewer_selection_id, items=viewers_list)
+    else:
+        print('Failed to get chatters', chatters_resp.status_code, chatters_resp.text)
+        dpg.set_value(error_display, f"Error: {chatters_resp.status_code} {chatters_resp.text}")
+
+def update_viewers_list_callback():
+    channel_name = dpg.get_value(user_data)
+    access_token = load_tokens()['access_token']
+    user_id = load_tokens()['user_id']
+    client_id = CLIENT_ID
+
+    if channel_name:
+        update_viewers_list(channel_name, user_id, access_token, client_id)
+    else:
+        print("Please enter a channel name.")
+
+#clear random viewer selection
+def clear_random_viewer_callback():
+    dpg.set_value(display, "")
+
+def clear_specific_viewer_callback():
+    dpg.set_value(viewer_selection_id, "")
     
 
 initialize_authentication_status()
@@ -489,17 +590,17 @@ with dpg.window(label="Chattastic", tag='chat', no_resize=True,):
             dpg.add_button(label="Cancel Auth", callback=cancel_auth, enabled=IS_AUTHENTICATED)
 
     with dpg.collapsing_header(label="Viewers"):
+        dpg.add_spacer(height=2)
+        user_data = dpg.add_input_text(label="Channel Name", hint="Enter Channel Name", width=200)
+        dpg.add_spacer(height=2)
+        tts_box = dpg.add_checkbox(label="Read Viewer Messages in TTS (Text-to-Speech)", default_value=True)
+        dpg.add_text("Note: You will need to enable TTS before picking a viewer.", wrap=390)
+        dpg.add_spacer(height=2)
         # add another dropdown inside of this one labeled "Random Viewer Picker"
-        with dpg.tree_node(label="Random Viewer Picker"):
-            dpg.add_spacer()
-            with dpg.group(horizontal=True):
-                # add a button labeled "Pick Random Viewer" with a callback to pick_random_viewer
-                dpg.add_text("Channel Name:", wrap=390)
-                channel_name_input = dpg.add_input_text(hint="Enter Channel Name", width=200)
-            
-            
+        with dpg.tree_node(label="Select Viewer Randomly"):            
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Pick Random Viewer", callback=pick_random_viewer_callback)
+                dpg.add_button(label="Clear Viewer", callback=clear_random_viewer_callback)
                 # add a button labeled "Clear Viewer" with a callback to clear_selection
                 # add a text label with the selected viewer name
 
@@ -507,14 +608,26 @@ with dpg.window(label="Chattastic", tag='chat', no_resize=True,):
 
             #space out
             dpg.add_spacer(height=2)
-            tts_box = dpg.add_checkbox(label="Read Viewer Messages in TTS (Text-to-Speech)", default_value=True)
-            dpg.add_text("Note: You will need to enable TTS before picking a viewer.", wrap=390)
-            dpg.add_spacer(height=2)
             vip_box = dpg.add_checkbox(label="VIPs Only (WIP)")
             mod_box = dpg.add_checkbox(label="Mods Only (WIP)")
             sub_box = dpg.add_checkbox(label="Subs Only (WIP)")
             follower_box = dpg.add_checkbox(label="Followers Only (WIP)")
             dpg.add_spacer()
+
+        with dpg.tree_node(label="Select Viewer Manually"):
+            #channel name input
+            dpg.add_spacer(height=2)
+            #create a dropdown with the list of viewers
+            viewer_selection_id = dpg.add_combo(label="Viewers", items=viewers_list, callback=select_manual_viewer_callback)
+            #add a button to update the list of viewers
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="Update Viewer List", callback=update_viewers_list_callback)
+                dpg.add_button(label="Clear Viewer", callback=clear_specific_viewer_callback)
+
+        #error display
+        dpg.add_spacer(height=2)
+        dpg.add_text("Error Display:")
+        error_display = dpg.add_text("", wrap=390, label="error_display")
     
 dpg.show_viewport()
 dpg.start_dearpygui()
