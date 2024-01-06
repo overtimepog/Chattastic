@@ -20,13 +20,9 @@ Chattastic is an innovative tool designed for Twitch streamers and moderators. I
     git clone https://github.com/overtimepog/Chattastic.git
     ```
 4. **Run it:** open up a command promt or power shell
-
-    CD into the Folder
     ```sh
     cd Chattastic
     ```
-
-    Run The Code
     ```sh
     python3 main.py
     ```
