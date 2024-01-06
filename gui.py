@@ -1,3 +1,4 @@
+import os
 import dearpygui.dearpygui as dpg
 import webbrowser
 import requests
