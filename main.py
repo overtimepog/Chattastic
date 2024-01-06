@@ -570,7 +570,6 @@ def clear_specific_viewer_callback():
     dpg.set_value(viewer_selection_id, "")
     #remove the bullet
     dpg.configure_item(viewer_selection_id, bullet=False)
-    
 
 initialize_authentication_status()
 
