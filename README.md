@@ -1,4 +1,4 @@
-#Chattastic
+# Chattastic
 
 ## Introduction
 Chattastic is an innovative tool designed for Twitch streamers and moderators. It enhances interaction with viewers through features like Text-to-Speech (TTS) for messages, random viewer selection, and audio visualization. Built using Python, it integrates Twitch API for authentication and viewer interaction, and DearPyGui for a user-friendly graphical interface.
