@@ -37,6 +37,9 @@ selected_channel = ""
 # Variable to store the selected random viewer
 selected_viewer = ""
 
+global sock
+sock = None
+
 # Initialize PyAudio for TTS audio monitoring
 py_audio = pyaudio.PyAudio()
 audio_stream = py_audio.open(format=pyaudio.paInt16, channels=1, rate=44100, input=True, frames_per_buffer=1024)
@@ -228,14 +231,17 @@ def get_random_chatter(channel_name, moderator_id, token, client_id):
 
             # Check for specific phrases in the error message
             if "does not have moderator permissions" in error_message:
-                simplified_error_message = "Not a Mod on that Channel"
+                simplified_error_message = "Not a Mod on that Channel, try another"
             else:
                 simplified_error_message = error_message  # or some other default message
 
         except json.JSONDecodeError:
             simplified_error_message = "Failed to parse error message"
 
-        dpg.set_value(error, f"Error: {simplified_error_message}")
+        dpg.set_value(display, f"Error: {simplified_error_message}")
+        #set the color of the error message to red
+        dpg.configure_item(display, color=[255, 0, 0])
+        clear_error_message()
         return None
 
     chatters_data = chatters_resp.json()
@@ -249,9 +255,11 @@ def get_random_chatter(channel_name, moderator_id, token, client_id):
     random_chatter = random.choice(usernames)
     
     print(f"Random chatter: {random_chatter}")
-    dpg.set_value(viewer, random_chatter)
+    dpg.set_value(display, random_chatter)
+    #make the color white
+    dpg.configure_item(display, color=[255, 255, 255])
     #make the chatters name bold
-    dpg.configure_item(viewer, bullet=True)
+    dpg.configure_item(display, bullet=True)
 
 
 def get_broadcaster_id(client_id, token, channel_login):
@@ -333,30 +341,43 @@ server = 'irc.chat.twitch.tv'
 port = 6667
 
 def connect_to_twitch():
-    global sel_viewer
+    global sel_viewer, sock
+
+    # Close existing socket connection if open
+    if sock is not None:
+        try:
+            sock.close()
+            print("Previous socket closed")
+        except Exception as e:
+            print(f"Error closing socket: {e}")
     access_token = load_tokens()['access_token']
     user_name = load_tokens()['user_name']
     channel_namestr = dpg.get_value(channel_name_input)
     channel_nameLow = str(channel_namestr).lower()
     channel_name = "#" + channel_nameLow
-    sel_viewer = dpg.get_value(viewer)
+    sel_viewer = dpg.get_value(display)
 
     # Check if selected_viewer is not empty and tts_box is checked
     if sel_viewer and dpg.get_value(tts_box):
         print(f"Connecting to channel: {channel_name} for viewer: {sel_viewer}")
-        sock = socket.socket()
-        sock.connect((server, port))
-        sock.send(f"PASS {access_token}\n".encode('utf-8'))
-        sock.send(f"NICK {user_name}\n".encode('utf-8'))
-        sock.send(f"JOIN {channel_name}\n".encode('utf-8'))
-        return sock
+        try:
+            sock = socket.socket()
+            sock.connect((server, port))
+            sock.send(f"PASS oauth:jrx6m97t36yqkf5rgdn5gmb6n9dllb\n".encode('utf-8'))
+            sock.send(f"NICK {user_name}\n".encode('utf-8'))
+            sock.send(f"JOIN {channel_name}\n".encode('utf-8'))
+            print("Connected to Twitch IRC")
+            return sock
+        except Exception as e:
+            print(f"Error connecting to socket: {e}")
+            return None
     else:
         print("Viewer not selected or TTS not enabled")
         return None
 
 def receive_messages(sock):
     global sel_viewer
-    sel_viewer = dpg.get_value(viewer)
+    sel_viewer = dpg.get_value(display)
     if sock is None:
         print("Socket is None, not receiving messages.")
         return
@@ -366,15 +387,39 @@ def receive_messages(sock):
             try:
                 resp = sock.recv(2048).decode('utf-8')
                 if len(resp) > 0:
-                    if f':{sel_viewer}!' in resp:
-                        print(resp)
-                        #tts code to read the message :)
-                        # Extract the message from 'resp' and pass it to speak_message
-                        username_message = resp.split('—')[1:]
-                        username_message = '—'.join(username_message).strip()
-                        username, channel, message = re.search(':(.*)\!.*@.*\.tmi\.twitch\.tv PRIVMSG #(.*) :(.*)', username_message).groups()
-                        print(f"Channel: {channel} \nUsername: {username} \nMessage: {message}")
-                        speak_message(message, username, message)
+                    #if f':{sel_viewer}!' in resp:
+                    #print(resp)
+                    #tts code to read the message :)
+                    # Extract the message from 'resp' and pass it to speak_message
+                    #:skelegem!skelegem@skelegem.tmi.twitch.tv
+                    #remove the skelegem@skelegem.tmi.twitch.tv from the message 
+                    if not resp.startswith(":tmi.twitch.tv"):
+                        # It's a user message, process it
+                        # Splitting the response to get different parts
+                        parts = resp.split(' ')
+
+                        # Extracting the username
+                        username = parts[0].split('!')[0][1:] # Removes the leading ':' and splits at '!', taking the first part
+
+                        # Extracting the message
+                        message_start_index = resp.find(" :") + 2 # Finds the start of the message and adjusts to get the right index
+                        message = resp[message_start_index:]
+
+                        # Combining username and message
+                        formatted_message = f"{username}: {message}"
+
+                        print(formatted_message)
+                        if username == sel_viewer:
+                            print("Selected viewer message received, reading aloud.")
+                            speak_message(message, username, message)
+                        else:
+                            print("Unselected viewer message received, ignoring.")
+                    else:
+                        # It's a server message, ignore it
+                        print("Server message received, ignoring.")
+                    #username, channel, message = re.search(r':(.*)\!.*@.*\.tmi\.twitch\.tv PRIVMSG #(.*) :(.*)', username_message).groups()
+                    #print(f"Channel: {channel} \nUsername: {username} \nMessage: {message}")
+                    #speak_message(message, username, message)
 
             except socket.error as e:
                 print(f"Socket error: {e}")
@@ -405,20 +450,25 @@ def initialize_authentication_status():
 
 def clear_error_message():
     # Wait for 5 seconds
-    threading.Timer(5.0, lambda: dpg.set_value(error, "")).start()
+    threading.Timer(10.0, lambda: dpg.set_value(display, "")).start()
+    #clear the bullet
+    threading.Timer(10.0, lambda: dpg.configure_item(display, bullet=False)).start()
+    
 
 initialize_authentication_status()
 
 # GUI Code
 dpg.create_context()
-dpg.create_viewport(width=600, height=600)
+dpg.create_viewport(title='Chattastic', height=500, width=400, resizable=False)
 dpg.setup_dearpygui()
 
-with dpg.window(label="Chattastic", width=600, height=600):
+with dpg.window(label="Chattastic", tag='chat', no_resize=True):
+    #set chat as primary window
+    dpg.set_primary_window("chat", True)
     # add text saying authentication status
     with dpg.group(horizontal=True):
         dpg.add_text("Authentication Status:")
-        auth_status = (dpg.add_text("Not Authenticated", color=(255, 0, 0)) if not IS_AUTHENTICATED else dpg.add_text("Authenticated", color=(0, 255, 0)))
+        auth_status = (dpg.add_text("Not Authenticated", color=(255, 0, 0), wrap=390) if not IS_AUTHENTICATED else dpg.add_text("Authenticated", color=(0, 255, 0), wrap=390))
     with dpg.collapsing_header(label="Auth"):
         with dpg.group(horizontal=True):
             dpg.add_button(label="Authenticate with Twitch", callback=authenticate_with_twitch)
@@ -431,21 +481,21 @@ with dpg.window(label="Chattastic", width=600, height=600):
             dpg.add_spacer()
             with dpg.group(horizontal=True):
                 # add a button labeled "Pick Random Viewer" with a callback to pick_random_viewer
-                dpg.add_text("Channel Name:")
+                dpg.add_text("Channel Name:", wrap=390)
                 channel_name_input = dpg.add_input_text(hint="Enter Channel Name", width=200)
-                error = dpg.add_text("", color=(255, 0, 0))
-                clear_error_message()
+            
             
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Pick Random Viewer", callback=pick_random_viewer_callback)
                 # add a button labeled "Clear Viewer" with a callback to clear_selection
                 # add a text label with the selected viewer name
-                viewer = dpg.add_text("Viewer: ", label="selected_viewer")
+
+            display = dpg.add_text("", wrap=390, label="display")
 
             #space out
             dpg.add_spacer(height=5)
             tts_box = dpg.add_checkbox(label="Read Viewer Messages in TTS (Text-to-Speech)")
-            dpg.add_text("Note: You will need to enable TTS before picking a viewer.")
+            dpg.add_text("Note: You will need to enable TTS before picking a viewer.", wrap=390)
             dpg.add_spacer(height=2)
             vip_box = dpg.add_checkbox(label="VIPs Only")
             mod_box = dpg.add_checkbox(label="Mods Only")
