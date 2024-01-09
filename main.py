@@ -18,6 +18,7 @@ import time
 import wave
 import audioop
 import sounddevice as sd
+import numpy as np
 
 import warnings
 warnings.filterwarnings("default", category=DeprecationWarning)
@@ -47,31 +48,18 @@ sock = None
 py_audio = pyaudio.PyAudio()
 audio_stream = py_audio.open(format=pyaudio.paInt16, channels=1, rate=44100, input=True, frames_per_buffer=1024)
 
-def play_audio(filename):
-    playsound(filename)
-
-def speak_message(message, username, subtitle):
-    # Generate speech from text
-    language = 'en'
-    tts_object = gTTS(text=message, lang=language, slow=False)
-    tts_filename = "temp_message.mp3"
-    tts_object.save(tts_filename)
-
-    # Start playing the sound in a separate thread
-    dpg.set_value(display, f"{username}: {message}")
-    #make the color white
-    dpg.configure_item(display, color=[255, 255, 255])
-    #make the chatters name bold
-    dpg.configure_item(display, bullet=True)
-    threading.Thread(target=play_audio, args=(tts_filename,)).start()
-
-    # Analyze and visualize the audio with username and subtitle
-    #analyze_and_visualize(tts_filename, username, subtitle)
-
-    # Clean up the temporary file after some delay
-    #time.sleep(10)  # Adjust the delay as needed
-    os.remove(tts_filename)
-    
+def find_speaker_id(device_name):
+    devices = sd.query_devices()
+    for device_id, device in enumerate(devices):
+        if device['name'] == device_name and device['max_output_channels'] > 0:
+            return device_id
+        
+def find_microphone_id(device_name):
+    devices = sd.query_devices()
+    for device_id, device in enumerate(devices):
+        if device['name'] == device_name and device['max_input_channels'] > 0:
+            return device_id
+        
 def get_audio_devices():
     list = sd.query_devices()
     microphones = []
@@ -86,11 +74,57 @@ def get_audio_devices():
         elif device['max_output_channels'] > 0 and device['max_input_channels'] > 0:
             other.append(device["name"])
 
-    print("Microphones:", microphones)
-    print("Speakers:", speakers)
-    print("Other", other)
+    #print("Microphones:", microphones)
+    #print("Speakers:", speakers)
+    #print("Other", other)
     
     return microphones, speakers, other
+
+def play_audio(filename):
+    # This function will play audio to the default output device, 
+    # which should be set to VB-Cable in your system settings.
+    try:
+        with wave.open(filename, 'rb') as wf:
+            samplerate = wf.getframerate()
+            channels = wf.getnchannels()
+            dtype = 'int16'
+
+            stream = sd.OutputStream(channels=channels, 
+                                     samplerate=samplerate,
+                                     dtype=dtype)
+            
+            with stream:
+                data = wf.readframes(wf.getnframes())
+                samples = np.frombuffer(data, dtype=dtype)
+                samples = samples.reshape(-1, channels)
+                stream.write(samples)
+
+    except Exception as e:
+        print(f"Error: {e}")
+
+def speak_message(message, username, subtitle):
+    # Generate speech from text
+    language = 'en'
+    tts_object = gTTS(text=message, lang=language, slow=False)
+    tts_filename = "temp_message.mp3"
+    tts_object.save(tts_filename)
+
+    # Start playing the sound in a separate thrssead
+    dpg.set_value(message_display, f"{username}: {message}")
+    #make the color white
+    dpg.configure_item(message_display, color=[255, 255, 255])
+    #make the chatters name bold
+    dpg.configure_item(message_display, bullet=True)
+    microphone = dpg.get_value(microphone_selecter)
+    speaker = dpg.get_value(speaker_selecter)
+    threading.Thread(target=play_audio, args=(tts_filename)).start()
+
+    # Analyze and visualize the audio with username and subtitle
+    #analyze_and_visualize(tts_filename, username, subtitle)
+
+    # Clean up the temporary file after some delay
+    #time.sleep(10)  # Adjust the delay as needed
+    os.remove(tts_filename)
 
 def visualize_in_separate_window(audio_file, username, subtitle):
     # Function to run the visualizer in a separate thread
@@ -291,11 +325,11 @@ def get_random_chatter(channel_name, moderator_id, token, client_id):
     random_chatter = random.choice(usernames)
     
     print(f"Random chatter: {random_chatter.lower()}")
-    dpg.set_value(display, random_chatter.lower())
+    dpg.set_value(user_display, random_chatter.lower())
     #make the color white
-    dpg.configure_item(display, color=[255, 255, 255])
+    dpg.configure_item(user_display, color=[255, 255, 255])
     #make the chatters name bold
-    dpg.configure_item(display, bullet=True)
+    dpg.configure_item(user_display, bullet=True)
 
 
 def get_broadcaster_id(client_id, token, channel_login):
@@ -391,7 +425,7 @@ def connect_to_twitch():
     channel_namestr = dpg.get_value(user_data)
     channel_nameLow = str(channel_namestr).lower()
     channel_name = "#" + channel_nameLow
-    sel_viewer = dpg.get_value(display)
+    sel_viewer = dpg.get_value(user_display)
     sel_viewer = dpg.get_value(viewer_selection_id)
 
     # Check if selected_viewer is not empty and tts_box is checked
@@ -414,7 +448,7 @@ def connect_to_twitch():
 
 def receive_messages(sock):
     global sel_viewer
-    sel_viewer = dpg.get_value(display)
+    sel_viewer = dpg.get_value(user_display)
     sel_viewer = dpg.get_value(viewer_selection_id)
     if sock is None:
         print("Socket is None, not receiving messages.")
@@ -565,7 +599,7 @@ def update_viewers_list(channel_name, user_id, token, client_id):
     if chatters_resp.status_code == 200:
         chatters_data = chatters_resp.json()
         viewers_list = [chatter['user_name'] for chatter in chatters_data.get('data', [])]
-        dpg.configure_item(viewer_selection_id, items=viewers_list, default_value="Viewer List Updated :)")
+        dpg.configure_item(viewer_selection_id, items=viewers_list)
     else:
         print('Failed to get chatters', chatters_resp.status_code, chatters_resp.text)
         dpg.set_value(error_display, f"Error: {chatters_resp.status_code} {chatters_resp.text}")
@@ -583,9 +617,9 @@ def update_viewers_list_callback():
 
 #clear random viewer selection
 def clear_random_viewer_callback():
-    dpg.set_value(display, "")
+    dpg.set_value(user_display, "")
     #remove the bullet
-    dpg.configure_item(display, bullet=False)
+    dpg.configure_item(user_display, bullet=False)
 
 def clear_specific_viewer_callback():
     dpg.set_value(viewer_selection_id, "")
@@ -612,6 +646,13 @@ with dpg.window(label="Chattastic", tag='chat', no_resize=True,):
             dpg.add_button(label="Authenticate with Twitch", callback=authenticate_with_twitch)
             # cancel auth button on the same line
             dpg.add_button(label="Cancel Auth", callback=cancel_auth, enabled=IS_AUTHENTICATED)
+            
+    #audio header
+    with dpg.collapsing_header(label="Audio"):
+        dpg.add_spacer(height=3)
+        microphone_selecter = dpg.add_combo(label="Microphones", items=get_audio_devices()[0], default_value="Please Select a Microphone")
+        speaker_selecter = dpg.add_combo(label="Speakers", items=get_audio_devices()[1], default_value="Please Select a Speaker")
+        dpg.add_spacer(height=3)
 
     with dpg.collapsing_header(label="Viewers"):
         dpg.add_spacer(height=2)
@@ -628,7 +669,7 @@ with dpg.window(label="Chattastic", tag='chat', no_resize=True,):
                 # add a button labeled "Clear Viewer" with a callback to clear_selection
                 # add a text label with the selected viewer name
 
-            display = dpg.add_text("", wrap=390, label="display")
+            user_display = dpg.add_text("", wrap=390, label="user display")
 
             #space out
             dpg.add_spacer(height=2)
@@ -645,8 +686,17 @@ with dpg.window(label="Chattastic", tag='chat', no_resize=True,):
             viewer_selection_id = dpg.add_combo(label="Viewers", items=viewers_list, callback=select_manual_viewer_callback)
             #add a button to update the list of viewers
             with dpg.group(horizontal=True):
-                dpg.add_button(label="Update Viewer List", callback=update_viewers_list_callback)
+                update_button = dpg.add_button(label="Update Viewer List", callback=update_viewers_list_callback)
                 dpg.add_button(label="Clear Viewer", callback=clear_specific_viewer_callback)
+                
+                #with dpg.popup(update_button, mousebutton=dpg.mvMouseButton_Left, tag="update_popup", modal=True):
+                #    dpg.add_text("Viewer list updated successfully!")
+
+                
+        #message display
+        dpg.add_spacer(height=2)
+        dpg.add_text("Messages:")
+        message_display = dpg.add_text("", wrap=390, label="Messages")
 
         #error display
         dpg.add_spacer(height=2)
