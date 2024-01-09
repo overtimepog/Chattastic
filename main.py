@@ -17,6 +17,7 @@ from playsound import playsound
 import time
 import wave
 import audioop
+import sounddevice as sd
 
 import warnings
 warnings.filterwarnings("default", category=DeprecationWarning)
