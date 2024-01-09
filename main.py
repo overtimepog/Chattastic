@@ -688,11 +688,7 @@ with dpg.window(label="Chattastic", tag='chat', no_resize=True,):
             with dpg.group(horizontal=True):
                 update_button = dpg.add_button(label="Update Viewer List", callback=update_viewers_list_callback)
                 dpg.add_button(label="Clear Viewer", callback=clear_specific_viewer_callback)
-                
-                #with dpg.popup(update_button, mousebutton=dpg.mvMouseButton_Left, tag="update_popup", modal=True):
-                #    dpg.add_text("Viewer list updated successfully!")
 
-                
         #message display
         dpg.add_spacer(height=2)
         dpg.add_text("Messages:")
