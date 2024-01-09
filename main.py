@@ -89,6 +89,8 @@ def get_audio_devices():
     print("Microphones:", microphones)
     print("Speakers:", speakers)
     print("Other", other)
+    
+    return microphones, speakers, other
 
 def visualize_in_separate_window(audio_file, username, subtitle):
     # Function to run the visualizer in a separate thread
