@@ -71,6 +71,24 @@ def speak_message(message, username, subtitle):
     # Clean up the temporary file after some delay
     #time.sleep(10)  # Adjust the delay as needed
     os.remove(tts_filename)
+    
+def get_audio_devices():
+    list = sd.query_devices()
+    microphones = []
+    speakers = []
+    other = []
+
+    for device in list:
+        if device['max_input_channels'] > 0 and device['max_output_channels'] == 0:
+            microphones.append(device['name'])
+        elif device['max_output_channels'] > 0 and device['max_input_channels'] == 0:
+            speakers.append(device['name'])
+        elif device['max_output_channels'] > 0 and device['max_input_channels'] > 0:
+            other.append(device["name"])
+
+    print("Microphones:", microphones)
+    print("Speakers:", speakers)
+    print("Other", other)
 
 def visualize_in_separate_window(audio_file, username, subtitle):
     # Function to run the visualizer in a separate thread
