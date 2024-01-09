@@ -691,7 +691,7 @@ with dpg.window(label="Chattastic", tag='chat', no_resize=True,):
 
         #message display
         dpg.add_spacer(height=2)
-        dpg.add_text("Messages:")
+        dpg.add_text("Message:")
         message_display = dpg.add_text("", wrap=390, label="Messages")
 
         #error display
