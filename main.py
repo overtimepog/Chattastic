@@ -544,7 +544,7 @@ def update_viewers_list(channel_name, user_id, token, client_id):
     if chatters_resp.status_code == 200:
         chatters_data = chatters_resp.json()
         viewers_list = [chatter['user_name'] for chatter in chatters_data.get('data', [])]
-        dpg.configure_item(viewer_selection_id, items=viewers_list)
+        dpg.configure_item(viewer_selection_id, items=viewers_list, default_value="Viewer List Updated :)")
     else:
         print('Failed to get chatters', chatters_resp.status_code, chatters_resp.text)
         dpg.set_value(error_display, f"Error: {chatters_resp.status_code} {chatters_resp.text}")
