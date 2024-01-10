@@ -4,3 +4,4 @@ playsound@git+https://github.com/taconi/playsound
 PyAudio
 Requests
 sounddevice
+flask

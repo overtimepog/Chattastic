@@ -105,7 +105,8 @@ def play_audio(filename):
 def speak_message(message, username, subtitle):
     # Generate speech from text
     language = 'en'
-    tts_object = gTTS(text=message, lang=language, slow=False)
+    text = f"{username} says {message}"
+    tts_object = gTTS(text=text, lang=language, slow=False)
     tts_filename = "temp_message.mp3"
     tts_object.save(tts_filename)
 
@@ -125,56 +126,6 @@ def speak_message(message, username, subtitle):
     # Clean up the temporary file after some delay
     #time.sleep(10)  # Adjust the delay as needed
     os.remove(tts_filename)
-
-def visualize_in_separate_window(audio_file, username, subtitle):
-    # Function to run the visualizer in a separate thread
-    def run_visualizer():
-        dpg.create_context()
-        with dpg.window(label="Audio Visualization"):
-            username_id = dpg.add_text(username, color=[250, 250, 250])
-            image_id = dpg.add_image("C:\\Users\\truen\\Documents\\GitHub\\Chattastic\\image.png")  # Replace with your image path
-            dpg.add_text(subtitle, color=[250, 250, 250], pos=[10, 260])  # Static subtitle at the bottom
-
-        dpg.create_viewport(title='Custom Visualization', width=600, height=300)
-        dpg.setup_dearpygui()
-        dpg.show_viewport()
-
-        # Open the audio file
-        wf = wave.open(audio_file, 'rb')
-        frame_rate = wf.getframerate()
-
-        # Process audio and update image and username position
-        while True:
-            frames = wf.readframes(frame_rate // 10)  # Read frames for 0.1 seconds
-            if not frames:
-                break
-
-            # Analyze volume
-            volume = audioop.rms(frames, wf.getsampwidth())
-
-            # Map volume to image and username position
-            min_pos = 100
-            max_pos = 200
-            pos = min_pos + (max_pos - min_pos) * volume / 32768
-
-            # Update image and username position
-            dpg.set_item_pos(image_id, (100, pos))
-            dpg.set_item_pos(username_id, (100, pos - 20))  # Adjust username position relative to the image
-
-            # Render the DearPyGui frame
-            dpg.render_dearpygui_frame()
-            time.sleep(0.1)
-
-        wf.close()
-        dpg.destroy_context()
-
-    visualizer_thread = threading.Thread(target=run_visualizer)
-    visualizer_thread.start()
-
-def analyze_and_visualize(audio_file, username, subtitle):
-    # Call the separate window function
-    visualize_in_separate_window(audio_file, username, subtitle)
-
 
 def save_callback():
     print("Save Clicked")
