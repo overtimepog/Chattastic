@@ -116,8 +116,8 @@ def speak_message(message, username, subtitle):
     dpg.configure_item(message_display, color=[255, 255, 255])
     #make the chatters name bold
     dpg.configure_item(message_display, bullet=True)
-    microphone = dpg.get_value(microphone_selecter)
-    speaker = dpg.get_value(speaker_selecter)
+    #microphone = dpg.get_value(microphone_selecter)
+    #speaker = dpg.get_value(speaker_selecter)
     threading.Thread(target=play_audio, args=(tts_filename)).start()
 
     # Analyze and visualize the audio with username and subtitle
@@ -613,11 +613,11 @@ with dpg.window(label="Chattastic", tag='chat', no_resize=True,):
             dpg.add_button(label="Cancel Auth", callback=cancel_auth, enabled=IS_AUTHENTICATED)
             
     #audio header
-    with dpg.collapsing_header(label="Audio"):
-        dpg.add_spacer(height=3)
-        microphone_selecter = dpg.add_combo(label="Microphones", items=get_audio_devices()[0], default_value="Please Select a Microphone")
-        speaker_selecter = dpg.add_combo(label="Speakers", items=get_audio_devices()[1], default_value="Please Select a Speaker")
-        dpg.add_spacer(height=3)
+    #with dpg.collapsing_header(label="Audio"):
+    #    dpg.add_spacer(height=3)
+    #    microphone_selecter = dpg.add_combo(label="Microphones", items=get_audio_devices()[0], default_value="Please Select a Microphone")
+    #    speaker_selecter = dpg.add_combo(label="Speakers", items=get_audio_devices()[1], default_value="Please Select a Speaker")
+    #    dpg.add_spacer(height=3)
 
     with dpg.collapsing_header(label="Viewers"):
         dpg.add_spacer(height=2)
