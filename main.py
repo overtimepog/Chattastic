@@ -417,17 +417,20 @@ def connect_to_twitch():
         return None
 
 def receive_messages(sock):
+    # Get manually selected viewers
     num_viewers = dpg.get_value("num_viewers_input")
-    selected_viewers = [dpg.get_value(f"viewer_selection_{i}") for i in range(num_viewers)]
-    #get the string from the user_display
+    selected_viewers_manual = [dpg.get_value(f"viewer_selection_{i}") for i in range(num_viewers) if dpg.get_value(f"viewer_selection_{i}").strip()]
+    print(f"Selected viewers manual: {selected_viewers_manual}")
+
+    # Get randomly picked viewers from user_display
     user_display_str = dpg.get_value(user_display)
-    #split the string into a list by comma
-    user_display_list = user_display_str.split(", ")
-    #make that list lowercase
-    user_display_list_lower = [x.lower() for x in user_display_list]
-    #make that list into selected_viewers
-    selected_viewers = user_display_list_lower
-    print(f"Selected viewers: {selected_viewers}")
+    print(f"User display string: {user_display_str}")
+    selected_viewers_random = [viewer.strip() for viewer in user_display_str.split(", ") if viewer.strip()]
+    print(f"Selected viewers random: {selected_viewers_random}")
+
+    # Combine both lists and remove duplicates
+    selected_viewers = list(set(selected_viewers_manual + selected_viewers_random))
+    print(f"Combined selected viewers: {selected_viewers}")
 
     if sock is None:
         print("Socket is None, not receiving messages.")
@@ -444,7 +447,7 @@ def receive_messages(sock):
                         message_start_index = resp.find(" :") + 2
                         message = resp[message_start_index:]
 
-                        if username in selected_viewers:
+                        if username.lower() in (viewer.lower() for viewer in selected_viewers):
                             print(f"{username}: {message}")
                             speak_message(message, username, message)
                         else:
@@ -512,30 +515,6 @@ def select_manual_viewer_callback(sender, app_data, user_data):
     sub_only = dpg.get_value(sub_box)
     follower_only = dpg.get_value(follower_box)
     tts_enabled = dpg.get_value(tts_box)
-
-    if vip_only:
-        pass
-        # Logic to pick from VIPs only
-        # Call a different function with appropriate parameters
-        # Example: get_random_vip_chatter(selected_channel, user_id, access_token, CLIENT_ID)
-    elif mod_only:
-        pass
-        # Logic to pick from Mods only
-        # Call a different function with appropriate parameters
-        # Example: get_random_mod_chatter(selected_channel, user_id, access_token, CLIENT_ID)
-    elif sub_only:
-        pass
-        # Logic to pick from Subs only
-        # Call a different function with appropriate parameters
-        # Example: get_random_sub_chatter(selected_channel, user_id, access_token, CLIENT_ID)
-    elif follower_only:
-        pass
-        # Logic to pick from Followers only
-        # Call a different function with appropriate parameters
-        # Example: get_random_follower_chatter(selected_channel, user_id, access_token, CLIENT_ID)
-    else:
-        # Default logic (pick from all chatters)
-        update_viewers_list(selected_channel, user_id, access_token, CLIENT_ID)
 
     #check if a socket is already open
     if tts_enabled:
@@ -670,11 +649,12 @@ with dpg.window(label="Chattastic", tag='chat', no_resize=True,):
         with dpg.tree_node(label="Select Viewer Manually", tag="manual_viewer_picker"):
             dpg.add_spacer(height=2)
             # Group for dynamic viewer selection combo boxes
-            manual_viewer_selection = dpg.add_group(tag="manual_viewer_selection")
-            update_viewer_selection_boxes(1)  # Initialize with 1 viewer selection combo box
             with dpg.group(horizontal=True):
                 update_button = dpg.add_button(label="Update Viewer List", callback=update_viewers_list_callback)
                 dpg.add_button(label="Clear Viewer", callback=clear_specific_viewer_callback)
+
+            manual_viewer_selection = dpg.add_group(tag="manual_viewer_selection")
+            update_viewer_selection_boxes(1)  # Initialize with 1 viewer selection combo box
 
         #message display
         dpg.add_spacer(height=2)
