@@ -383,7 +383,7 @@ server = 'irc.chat.twitch.tv'
 port = 6667
 
 def connect_to_twitch():
-    global sel_viewer, sock
+    global sock
 
     # Close existing socket connection if open
     if sock is not None:
@@ -392,17 +392,15 @@ def connect_to_twitch():
             print("Previous socket closed")
         except Exception as e:
             print(f"Error closing socket: {e}")
+
     access_token = load_tokens()['access_token']
     user_name = load_tokens()['user_name']
     channel_namestr = dpg.get_value(user_data)
     channel_nameLow = str(channel_namestr).lower()
     channel_name = "#" + channel_nameLow
-    sel_viewer = dpg.get_value(user_display)
-    sel_viewer = dpg.get_value(viewer_selection_id)
 
-    # Check if selected_viewer is not empty and tts_box is checked
-    if sel_viewer and dpg.get_value(tts_box):
-        print(f"Connecting to channel: {channel_name} for viewer: {sel_viewer}")
+    if dpg.get_value(tts_box):
+        print(f"Connecting to channel: {channel_name}")
         try:
             sock = socket.socket()
             sock.connect((server, port))
@@ -415,19 +413,24 @@ def connect_to_twitch():
             print(f"Error connecting to socket: {e}")
             return None
     else:
-        print("Viewer not selected or TTS not enabled")
+        print("TTS not enabled")
         return None
 
 def receive_messages(sock):
-    global sel_viewer
-    sel_viewers = dpg.get_value(user_display)
-    sel_viewers = dpg.get_value(viewer_selection_id)
+    num_viewers = dpg.get_value("num_viewers_input")
+    selected_viewers = [dpg.get_value(f"viewer_selection_{i}") for i in range(num_viewers)]
+    #get the string from the user_display
+    user_display_str = dpg.get_value(user_display)
+    #split the string into a list by comma
+    user_display_list = user_display_str.split(", ")
+    #make that list lowercase
+    user_display_list_lower = [x.lower() for x in user_display_list]
+    #make that list into selected_viewers
+    selected_viewers = user_display_list_lower
+    print(f"Selected viewers: {selected_viewers}")
+
     if sock is None:
         print("Socket is None, not receiving messages.")
-        return
-    
-    if sel_viewer is None:
-        print("Viewer is None, not receiving messages.")
         return
 
     try:
@@ -435,49 +438,26 @@ def receive_messages(sock):
             try:
                 resp = sock.recv(2048).decode('utf-8')
                 if len(resp) > 0:
-                    #if f':{sel_viewer}!' in resp:
-                    #print(resp)
-                    #tts code to read the message :)
-                    # Extract the message from 'resp' and pass it to speak_message
-                    #:skelegem!skelegem@skelegem.tmi.twitch.tv
-                    #remove the skelegem@skelegem.tmi.twitch.tv from the message 
                     if not resp.startswith(":tmi.twitch.tv"):
-                        # It's a user message, process it
-                        # Splitting the response to get different parts
                         parts = resp.split(' ')
-
-                        # Extracting the username
-                        username = parts[0].split('!')[0][1:] # Removes the leading ':' and splits at '!', taking the first part
-
-                        # Extracting the message
-                        message_start_index = resp.find(" :") + 2 # Finds the start of the message and adjusts to get the right index
+                        username = parts[0].split('!')[0][1:]
+                        message_start_index = resp.find(" :") + 2
                         message = resp[message_start_index:]
 
-                        # Combining username and message
-                        formatted_message = f"{username}: {message}"
-
-                        print(formatted_message)
-                        #sel_viewer is now a list of viewers seperated by commas so we need to split it
-                        sel_viewer = sel_viewers.split(", ")
-                        #check if the username is in the list of selected viewers
-                        if username in sel_viewer:
+                        if username in selected_viewers:
+                            print(f"{username}: {message}")
                             speak_message(message, username, message)
                         else:
                             print("Message not from selected viewer, ignoring.")
                     else:
-                        # It's a server message, ignore it
                         print("Server message received, ignoring.")
-                    #username, channel, message = re.search(r':(.*)\!.*@.*\.tmi\.twitch\.tv PRIVMSG #(.*) :(.*)', username_message).groups()
-                    #print(f"Channel: {channel} \nUsername: {username} \nMessage: {message}")
-                    #speak_message(message, username, message)
-
             except socket.error as e:
                 print(f"Socket error: {e}")
-                break  # Exit the loop if there's a socket error
+                break
     except KeyboardInterrupt:
-        pass  # Handle interrupt gracefully
+        pass
     finally:
-        sock.close()  # Ensure the socket is closed properly
+        sock.close()
 
 def start_streaming():
     global sock
@@ -504,9 +484,18 @@ def clear_error_message():
     #clear the bullet
     threading.Timer(10.0, lambda: dpg.configure_item(error_display, bullet=False)).start()
 
-def select_manual_viewer_callback():
-    selected_viewer = dpg.get_value(viewer_selection_id)
-    print(f"Manually selected viewer: {selected_viewer}")
+def select_manual_viewer_callback(sender, app_data, user_data):
+    num_viewers = dpg.get_value("num_viewers_input")
+    selected_viewers = []
+
+    for i in range(num_viewers):
+        viewer_selection_tag = f"viewer_selection_{i}"
+        if dpg.does_item_exist(viewer_selection_tag):
+            selected_viewer = dpg.get_value(viewer_selection_tag)
+            if selected_viewer:
+                selected_viewers.append(selected_viewer)
+
+    print(f"Manually selected viewers: {selected_viewers}")
     access_token = load_tokens()['access_token']
     user_id = load_tokens()['user_id']
     
@@ -574,7 +563,11 @@ def update_viewers_list(channel_name, user_id, token, client_id):
     if chatters_resp.status_code == 200:
         chatters_data = chatters_resp.json()
         viewers_list = [chatter['user_name'] for chatter in chatters_data.get('data', [])]
-        dpg.configure_item(viewer_selection_id, items=viewers_list)
+        num_viewers = dpg.get_value("num_viewers_input")
+        for i in range(num_viewers):
+            viewer_selection_tag = f"viewer_selection_{i}"
+            if dpg.does_item_exist(viewer_selection_tag):
+                dpg.configure_item(viewer_selection_tag, items=viewers_list)
     else:
         print('Failed to get chatters', chatters_resp.status_code, chatters_resp.text)
         dpg.set_value(error_display, f"Error: {chatters_resp.status_code} {chatters_resp.text}")
@@ -597,9 +590,27 @@ def clear_random_viewer_callback():
     dpg.configure_item(user_display, bullet=False)
 
 def clear_specific_viewer_callback():
-    dpg.set_value(viewer_selection_id, "")
-    #remove the bullet
-    dpg.configure_item(viewer_selection_id, bullet=False)
+    num_viewers = dpg.get_value("num_viewers_input")
+    for i in range(num_viewers):
+        viewer_selection_tag = f"viewer_selection_{i}"
+        if dpg.does_item_exist(viewer_selection_tag):
+            dpg.set_value(viewer_selection_tag, "")
+            # Optionally remove the bullet if it's used in your combo boxes
+            dpg.configure_item(viewer_selection_tag, bullet=False)
+
+def update_viewer_selection_boxes(num_viewers):
+    # Ensure the previous viewer selection boxes are removed
+    if dpg.does_item_exist("viewer_selection_group"):
+        dpg.delete_item("viewer_selection_group")
+
+    with dpg.group(parent="manual_viewer_picker", horizontal=False, tag="viewer_selection_group"):
+        for i in range(num_viewers):
+            dpg.add_combo(label=f"Viewer {i+1}", items=viewers_list, tag=f"viewer_selection_{i}", width=175, callback=select_manual_viewer_callback)
+
+def on_viewer_number_change(sender, app_data, user_data):
+    num_viewers = dpg.get_value(sender)
+    update_viewer_selection_boxes(num_viewers)
+
 
 initialize_authentication_status()
 
@@ -633,7 +644,7 @@ with dpg.window(label="Chattastic", tag='chat', no_resize=True,):
         dpg.add_spacer(height=2)
         user_data = dpg.add_input_text(label="Channel Name", hint="Enter Channel Name", width=175)
         dpg.add_spacer(height=2)
-        viewer_number_picker = dpg.add_input_int(label="Number of Viewers", tag="num_viewers_input", default_value=1, min_value=1, width=175)
+        viewer_number_picker = dpg.add_input_int(label="Number of Viewers", tag="num_viewers_input", default_value=1, min_value=1, width=175, callback=on_viewer_number_change)
         dpg.add_spacer(height=2)
         tts_box = dpg.add_checkbox(label="Read Viewer Messages in TTS (Text-to-Speech)", default_value=True)
         dpg.add_text("Note: You will need to enable TTS before picking a viewer.", wrap=390)
@@ -657,11 +668,10 @@ with dpg.window(label="Chattastic", tag='chat', no_resize=True,):
             dpg.add_spacer()
 
         with dpg.tree_node(label="Select Viewer Manually", tag="manual_viewer_picker"):
-            #channel name input
             dpg.add_spacer(height=2)
-            #create a dropdown with the list of viewers
-            viewer_selection_id = dpg.add_combo(label="Viewers", items=viewers_list, callback=select_manual_viewer_callback)
-            #add a button to update the list of viewers
+            # Group for dynamic viewer selection combo boxes
+            manual_viewer_selection = dpg.add_group(tag="manual_viewer_selection")
+            update_viewer_selection_boxes(1)  # Initialize with 1 viewer selection combo box
             with dpg.group(horizontal=True):
                 update_button = dpg.add_button(label="Update Viewer List", callback=update_viewers_list_callback)
                 dpg.add_button(label="Clear Viewer", callback=clear_specific_viewer_callback)
