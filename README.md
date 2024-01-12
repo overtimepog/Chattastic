@@ -9,33 +9,8 @@ Chattastic is an innovative tool designed for Twitch streamers and moderators. I
 - **Text-to-Speech:** Read viewer messages aloud using TTS.
 
 ## Installation
+Run *run.bat* and thats it
 
-**Best Way**
-    Run *run.bat* and thats it
-
-1. **Python Installation:** Ensure Python 3.x is installed. Download from [python.org](https://www.python.org/downloads/).
-
-2. **Clone the Repository:** Use Git to clone the Chattastic repo to your local machine.
-    ```sh
-    git clone https://github.com/overtimepog/Chattastic.git
-    ```
-
-3. **Dependency Installation:** Install required packages using pip:
-   ```sh
-   python -m pip install dearpygui pyaudio gtts playsound@git+https://github.com/taconi/playsound requests sounddevice flask numpy
-   ```
-   Or
-   ```sh 
-   python -m pip install -r requirements.txt
-   ```
-
-4. **Run it:** open up a command promt or power shell
-    ```sh
-    cd Chattastic
-    ```
-    ```sh
-    python3 main.py
-    ```
 
 ## Contributions
 Contributions to Chattastic are welcome. Please fork the repository, make your changes, and submit a pull request :)
