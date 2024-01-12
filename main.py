@@ -318,7 +318,15 @@ def get_broadcaster_id(client_id, token, channel_login):
 def pick_random_viewer_callback():
     global selected_channel
     print("Pick Random Viewer Clicked")
-    access_token = load_tokens()['access_token']
+    try:
+        access_token = load_tokens()['access_token']
+    except(ValueError):
+        print("No access token found")
+        dpg.set_value(error_display, f"Error: No access token found")
+        #set the color of the error message to red
+        dpg.configure_item(error_display, color=[255, 0, 0])
+        clear_error_message()
+        return None
     user_id = load_tokens()['user_id']
     
     # Retrieve the channel name from the input field
