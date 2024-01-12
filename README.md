@@ -9,6 +9,10 @@ Chattastic is an innovative tool designed for Twitch streamers and moderators. I
 - **Text-to-Speech:** Read viewer messages aloud using TTS.
 
 ## Installation
+
+**Best Way**
+    Run *run.bat* and thats it
+
 1. **Python Installation:** Ensure Python 3.x is installed. Download from [python.org](https://www.python.org/downloads/).
 
 2. **Clone the Repository:** Use Git to clone the Chattastic repo to your local machine.
