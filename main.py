@@ -229,7 +229,7 @@ def cancel_auth():
     dpg.configure_item(auth_status, color=[255, 0, 0])
 
 # Function to get chatters' usernames and pick a random one
-def get_random_chatter(channel_name, moderator_id, token, client_id):
+def get_random_chatter(channel_name, moderator_id, token, client_id, num_viewers=1):
 
     # Get the broadcaster ID
     broadcaster_id = get_broadcaster_id(client_id, token, channel_name)
@@ -273,10 +273,21 @@ def get_random_chatter(channel_name, moderator_id, token, client_id):
         return None
 
     usernames = [chatter['user_name'] for chatter in chatters_list]
-    random_chatter = random.choice(usernames)
-    
-    print(f"Random chatter: {random_chatter.lower()}")
-    dpg.set_value(user_display, random_chatter.lower())
+    #pick that many random viewers
+    try:
+        random_chatters = random.sample(usernames, num_viewers)
+    except ValueError:
+        print("Not enough viewers to pick from")
+        dpg.set_value(error_display, f"Error: Not enough viewers to pick from")
+        #set the color of the error message to red
+        dpg.configure_item(error_display, color=[255, 0, 0])
+        clear_error_message()
+        return None
+    #print the random viewers
+    print(random_chatters)
+    #set the value of the user_display to the random viewer
+    random_chatters_str = ', '.join(random_chatters)
+    dpg.set_value(user_display, random_chatters_str)
     #make the color white
     dpg.configure_item(user_display, color=[255, 255, 255])
     #make the chatters name bold
@@ -324,6 +335,8 @@ def pick_random_viewer_callback():
     follower_only = dpg.get_value(follower_box)
     tts_enabled = dpg.get_value(tts_box)
 
+    num_viewers = dpg.get_value(viewer_number_picker)
+
     if vip_only:
         pass
         # Logic to pick from VIPs only
@@ -346,7 +359,7 @@ def pick_random_viewer_callback():
         # Example: get_random_follower_chatter(selected_channel, user_id, access_token, CLIENT_ID)
     else:
         # Default logic (pick from all chatters)
-        get_random_chatter(selected_channel, user_id, access_token, CLIENT_ID)
+        get_random_chatter(selected_channel, user_id, access_token, CLIENT_ID, num_viewers)
 
     #check if a socket is already open
     if tts_enabled:
@@ -399,8 +412,8 @@ def connect_to_twitch():
 
 def receive_messages(sock):
     global sel_viewer
-    sel_viewer = dpg.get_value(user_display)
-    sel_viewer = dpg.get_value(viewer_selection_id)
+    sel_viewers = dpg.get_value(user_display)
+    sel_viewers = dpg.get_value(viewer_selection_id)
     if sock is None:
         print("Socket is None, not receiving messages.")
         return
@@ -436,10 +449,13 @@ def receive_messages(sock):
                         formatted_message = f"{username}: {message}"
 
                         print(formatted_message)
-                        viwer = sel_viewer.lower()
-                        if username == viwer:
-                            print("Selected viewer message received, reading aloud.")
+                        #sel_viewer is now a list of viewers seperated by commas so we need to split it
+                        sel_viewer = sel_viewers.split(", ")
+                        #check if the username is in the list of selected viewers
+                        if username in sel_viewer:
                             speak_message(message, username, message)
+                        else:
+                            print("Message not from selected viewer, ignoring.")
                     else:
                         # It's a server message, ignore it
                         print("Server message received, ignoring.")
@@ -607,7 +623,9 @@ with dpg.window(label="Chattastic", tag='chat', no_resize=True,):
 
     with dpg.collapsing_header(label="Viewers"):
         dpg.add_spacer(height=2)
-        user_data = dpg.add_input_text(label="Channel Name", hint="Enter Channel Name", width=200)
+        user_data = dpg.add_input_text(label="Channel Name", hint="Enter Channel Name", width=175)
+        dpg.add_spacer(height=2)
+        viewer_number_picker = dpg.add_input_int(label="Number of Viewers", tag="num_viewers_input", default_value=1, min_value=1, width=175)
         dpg.add_spacer(height=2)
         tts_box = dpg.add_checkbox(label="Read Viewer Messages in TTS (Text-to-Speech)", default_value=True)
         dpg.add_text("Note: You will need to enable TTS before picking a viewer.", wrap=390)
