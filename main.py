@@ -656,7 +656,7 @@ with dpg.window(label="Chattastic", tag='chat', no_resize=True,):
             follower_box = dpg.add_checkbox(label="Followers Only (WIP)")
             dpg.add_spacer()
 
-        with dpg.tree_node(label="Select Viewer Manually"):
+        with dpg.tree_node(label="Select Viewer Manually", tag="manual_viewer_picker"):
             #channel name input
             dpg.add_spacer(height=2)
             #create a dropdown with the list of viewers
