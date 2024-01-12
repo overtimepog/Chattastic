@@ -11,18 +11,20 @@ Chattastic is an innovative tool designed for Twitch streamers and moderators. I
 ## Installation
 1. **Python Installation:** Ensure Python 3.x is installed. Download from [python.org](https://www.python.org/downloads/).
 
-2. **Dependency Installation:** Install required packages using pip:
-   ```sh
-   pip install dearpygui pyaudio gtts playsound@git+https://github.com/taconi/playsound requests sounddevice flask
-   ```
-   Or
-   ```sh
-   pip install -r requirements.txt
-   ```
-3. **Clone the Repository:** Use Git to clone the Chattastic repo to your local machine.
+2. **Clone the Repository:** Use Git to clone the Chattastic repo to your local machine.
     ```sh
     git clone https://github.com/overtimepog/Chattastic.git
     ```
+
+3. **Dependency Installation:** Install required packages using pip:
+   ```sh
+   python -m pip install dearpygui pyaudio gtts playsound@git+https://github.com/taconi/playsound requests sounddevice flask numpy
+   ```
+   Or
+   ```sh 
+   python -m pip install -r requirements.txt
+   ```
+
 4. **Run it:** open up a command promt or power shell
     ```sh
     cd Chattastic

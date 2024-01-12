@@ -5,3 +5,4 @@ PyAudio
 Requests
 sounddevice
 flask
+numpy
