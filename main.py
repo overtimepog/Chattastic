@@ -21,6 +21,7 @@ import sounddevice as sd
 import numpy as np
 
 import warnings
+from flask import Flask, render_template
 warnings.filterwarnings("default", category=DeprecationWarning)
 
 # Your Twitch application credentials
@@ -41,8 +42,53 @@ selected_viewer = ""
 
 viewers_list = []
 
+# Global variable to store the number of selected viewers
+selected_viewer_count = 1
+
 global sock
 sock = None
+
+global selected_viewers
+
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return 'Welcome to the Flask server!'
+
+@app.route('/viewer/<viewer_name>')
+def show_viewer(viewer_name):
+    if viewer_name in selected_viewers:
+        # Placeholder image URLs or integrate an API for random images
+        image_urls = ["https://example.com/image1.jpg", "https://example.com/image2.jpg", "https://example.com/image3.jpg"]
+        random_image = random.choice(image_urls)
+        viewer_message = viewer_messages.get(viewer_name, "No new messages")
+        return f'''
+            <h1>Welcome, {viewer_name}!</h1>
+            <img src="{random_image}" alt="Random Image">
+            <p>Latest Message: {viewer_message}</p>
+        '''
+    else:
+        return "Viewer not found", 404
+
+
+# Run Flask app in a separate thread
+def run_flask_app():
+    app.run(debug=False, port=5000, use_reloader=False)
+
+flask_thread = Thread(target=run_flask_app, daemon=True)
+flask_thread.start()
+
+
+def open_viewer_pages():
+    for viewer in selected_viewers:
+        webbrowser.open_new_tab(f'http://localhost:5000/viewer/{viewer}')
+
+viewer_messages = {}
+
+def update_viewer_message(viewer_name, message):
+    global viewer_messages
+    viewer_messages[viewer_name] = message
 
 # Initialize PyAudio for TTS audio monitoring
 py_audio = pyaudio.PyAudio()
@@ -344,6 +390,7 @@ def pick_random_viewer_callback():
     tts_enabled = dpg.get_value(tts_box)
 
     num_viewers = dpg.get_value(viewer_number_picker)
+    selected_viewer_count = num_viewers
 
     if vip_only:
         pass
@@ -419,16 +466,18 @@ def connect_to_twitch():
 def receive_messages(sock):
     # Get manually selected viewers
     num_viewers = dpg.get_value("num_viewers_input")
-    selected_viewers_manual = [dpg.get_value(f"viewer_selection_{i}") for i in range(num_viewers) if dpg.get_value(f"viewer_selection_{i}").strip()]
+    selected_viewer_count = num_viewers
+    selected_viewers_manual = [dpg.get_value(f"viewer_selection_{i}").lower() for i in range(num_viewers) if dpg.get_value(f"viewer_selection_{i}").strip()]
     print(f"Selected viewers manual: {selected_viewers_manual}")
 
     # Get randomly picked viewers from user_display
     user_display_str = dpg.get_value(user_display)
     print(f"User display string: {user_display_str}")
-    selected_viewers_random = [viewer.strip() for viewer in user_display_str.split(", ") if viewer.strip()]
+    selected_viewers_random = [viewer.strip().lower() for viewer in user_display_str.split(", ") if viewer.strip()]
     print(f"Selected viewers random: {selected_viewers_random}")
 
     # Combine both lists and remove duplicates
+    global selected_viewers
     selected_viewers = list(set(selected_viewers_manual + selected_viewers_random))
     print(f"Combined selected viewers: {selected_viewers}")
 
@@ -450,6 +499,7 @@ def receive_messages(sock):
                         if username.lower() in (viewer.lower() for viewer in selected_viewers):
                             print(f"{username}: {message}")
                             speak_message(message, username, message)
+                            update_viewer_message(username, message)
                         else:
                             print("Message not from selected viewer, ignoring.")
                     else:
@@ -489,6 +539,7 @@ def clear_error_message():
 
 def select_manual_viewer_callback(sender, app_data, user_data):
     num_viewers = dpg.get_value("num_viewers_input")
+    selected_viewer_count = num_viewers
     selected_viewers = []
 
     for i in range(num_viewers):
@@ -543,6 +594,7 @@ def update_viewers_list(channel_name, user_id, token, client_id):
         chatters_data = chatters_resp.json()
         viewers_list = [chatter['user_name'] for chatter in chatters_data.get('data', [])]
         num_viewers = dpg.get_value("num_viewers_input")
+        selected_viewer_count = num_viewers
         for i in range(num_viewers):
             viewer_selection_tag = f"viewer_selection_{i}"
             if dpg.does_item_exist(viewer_selection_tag):
@@ -567,15 +619,20 @@ def clear_random_viewer_callback():
     dpg.set_value(user_display, "")
     #remove the bullet
     dpg.configure_item(user_display, bullet=False)
+    global selected_viewers
+    selected_viewers = []
 
 def clear_specific_viewer_callback():
     num_viewers = dpg.get_value("num_viewers_input")
+    selected_viewer_count = num_viewers
     for i in range(num_viewers):
         viewer_selection_tag = f"viewer_selection_{i}"
         if dpg.does_item_exist(viewer_selection_tag):
             dpg.set_value(viewer_selection_tag, "")
             # Optionally remove the bullet if it's used in your combo boxes
             dpg.configure_item(viewer_selection_tag, bullet=False)
+    global selected_viewers
+    selected_viewers = []
 
 def update_viewer_selection_boxes(num_viewers):
     # Ensure the previous viewer selection boxes are removed
@@ -588,6 +645,7 @@ def update_viewer_selection_boxes(num_viewers):
 
 def on_viewer_number_change(sender, app_data, user_data):
     num_viewers = dpg.get_value(sender)
+    selected_viewer_count = num_viewers
     update_viewer_selection_boxes(num_viewers)
 
 
@@ -628,6 +686,7 @@ with dpg.window(label="Chattastic", tag='chat', no_resize=True,):
         tts_box = dpg.add_checkbox(label="Read Viewer Messages in TTS (Text-to-Speech)", default_value=True)
         dpg.add_text("Note: You will need to enable TTS before picking a viewer.", wrap=390)
         dpg.add_spacer(height=2)
+        dpg.add_button(label="Open Pages", callback=open_viewer_pages)
         # add another dropdown inside of this one labeled "Random Viewer Picker"
         with dpg.tree_node(label="Select Viewer Randomly"):            
             with dpg.group(horizontal=True):
