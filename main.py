@@ -19,6 +19,7 @@ import wave
 import audioop
 import sounddevice as sd
 import numpy as np
+from flask import jsonify
 
 import warnings
 from flask import Flask, render_template
@@ -64,12 +65,48 @@ def show_viewer(viewer_name):
         random_image = random.choice(image_urls)
         viewer_message = viewer_messages.get(viewer_name, "No new messages")
         return f'''
-            <h1>Welcome, {viewer_name}!</h1>
-            <img src="{random_image}" alt="Random Image">
-            <p>Latest Message: {viewer_message}</p>
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Viewer Page</title>
+                <style>
+                    body {{
+                        background-color: transparent !important;
+                        color: #000; /* Set text color for visibility */
+                        font-family: Arial, sans-serif; /* Optional: Change font */
+                    }}
+                    /* Add more custom styles as needed */
+                </style>
+            </head>
+            <body>
+                <h1>Welcome, {viewer_name}!</h1>
+                <img src="{random_image}" alt="Random Image">
+                <p id="latestMessage">Latest Message: {viewer_message}</p>
+                <script>
+                    function updateMessage() {{
+                        fetch('/viewer/{viewer_name}/message')
+                            .then(response => response.json())
+                            .then(data => {{
+                                document.getElementById("latestMessage").innerText = "Latest Message: " + data.message;
+                            }})
+                            .catch(error => console.error('Error:', error));
+                    }}
+                    setInterval(updateMessage, 2000); // Update every 5 seconds
+                </script>
+            </body>
+            </html>
         '''
     else:
         return "Viewer not found", 404
+    
+@app.route('/viewer/<viewer_name>/message')
+def get_viewer_message(viewer_name):
+    if viewer_name in selected_viewers:
+        viewer_message = viewer_messages.get(viewer_name, "No new messages")
+        return jsonify({"message": viewer_message})
+    else:
+        return jsonify({"message": "Viewer not found"}), 404
+
 
 
 # Run Flask app in a separate thread
