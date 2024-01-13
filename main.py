@@ -127,26 +127,13 @@ def get_audio_devices():
     return microphones, speakers, other
 
 def play_audio(filename):
-    # This function will play audio to the default output device, 
-    # which should be set to VB-Cable in your system settings.
     try:
-        with wave.open(filename, 'rb') as wf:
-            samplerate = wf.getframerate()
-            channels = wf.getnchannels()
-            dtype = 'int16'
-
-            stream = sd.OutputStream(channels=channels, 
-                                     samplerate=samplerate,
-                                     dtype=dtype)
-            
-            with stream:
-                data = wf.readframes(wf.getnframes())
-                samples = np.frombuffer(data, dtype=dtype)
-                samples = samples.reshape(-1, channels)
-                stream.write(samples)
-
-    except Exception as e:
-        print(f"Error: {e}")
+        print("Playing audio")
+        playsound(filename)
+    finally:
+        if os.path.exists(filename):
+            os.remove(filename)
+            print(f"Deleted {filename}")
 
 def speak_message(message, username, subtitle):
     # Generate speech from text
@@ -156,22 +143,12 @@ def speak_message(message, username, subtitle):
     tts_filename = "temp_message.mp3"
     tts_object.save(tts_filename)
 
-    # Start playing the sound in a separate thrssead
+    # Update GUI
     dpg.set_value(message_display, f"{username}: {message}")
-    #make the color white
-    dpg.configure_item(message_display, color=[255, 255, 255])
-    #make the chatters name bold
-    dpg.configure_item(message_display, bullet=True)
-    #microphone = dpg.get_value(microphone_selecter)
-    #speaker = dpg.get_value(speaker_selecter)
-    threading.Thread(target=play_audio, args=(tts_filename)).start()
+    dpg.configure_item(message_display, color=[255, 255, 255], bullet=True)
 
-    # Analyze and visualize the audio with username and subtitle
-    #analyze_and_visualize(tts_filename, username, subtitle)
-
-    # Clean up the temporary file after some delay
-    #time.sleep(10)  # Adjust the delay as needed
-    os.remove(tts_filename)
+    # Start playing the sound in a separate thread
+    threading.Thread(target=play_audio, args=(tts_filename,)).start()
 
 def save_callback():
     print("Save Clicked")
@@ -629,10 +606,8 @@ def clear_specific_viewer_callback():
         viewer_selection_tag = f"viewer_selection_{i}"
         if dpg.does_item_exist(viewer_selection_tag):
             dpg.set_value(viewer_selection_tag, "")
-            # Optionally remove the bullet if it's used in your combo boxes
-            dpg.configure_item(viewer_selection_tag, bullet=False)
-    global selected_viewers
-    selected_viewers = []
+            global selected_viewers
+            selected_viewers = []
 
 def update_viewer_selection_boxes(num_viewers):
     # Ensure the previous viewer selection boxes are removed
