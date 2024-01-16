@@ -503,6 +503,23 @@ def pick_random_viewer_callback():
     global selected_channel
     global entered_users
     print("Pick Random Viewer Clicked")
+    if dpg.get_value(user_data) == None or dpg.get_value(user_data) == "" or dpg.get_value(user_data) == "31" or dpg.get_value(user_data) == " ": #check if the channel name is empty
+        print("No channel name entered")
+        dpg.set_value(error_display, f"Error: No channel name entered")
+        #set the color of the error message to red
+        dpg.configure_item(error_display, color=[255, 0, 0])
+        clear_error_message()
+        return None
+    
+    #check if twitch is on
+    if dpg.get_value(enabled) == "Twitch is off :(":
+        print("Twitch is off")
+        dpg.set_value(error_display, f"Error: Twitch is off")
+        #set the color of the error message to red
+        dpg.configure_item(error_display, color=[255, 0, 0])
+        clear_error_message()
+        return None
+
     try:
         access_token = load_tokens()['access_token']
     except(ValueError):
@@ -571,7 +588,7 @@ def pick_random_viewer_callback():
 def start_twitch_button_callback():
     #check if a socket is already open
         print("Start Twitch Clicked")
-        if user_data == None or user_data == "" or user_data == "31" or user_data == " ":
+        if dpg.get_value(user_data) == None or dpg.get_value(user_data) == "" or dpg.get_value(user_data) == "31" or dpg.get_value(user_data) == " ": #check if the channel name is empty
             print("No channel name entered")
             dpg.set_value(error_display, f"Error: No channel name entered")
             #set the color of the error message to red
@@ -586,8 +603,6 @@ def start_twitch_button_callback():
         except:
             pass
         #set the text of enabled to true
-        dpg.set_value(enabled, "Twitch is on :)")
-        dpg.configure_item(enabled, color=[0, 255, 0])
         start_streaming()
 
 
@@ -604,8 +619,15 @@ def connect_to_twitch():
             print("Previous socket closed")
         except Exception as e:
             print(f"Error closing socket: {e}")
-
-    access_token = load_tokens()['access_token']
+    try:
+        access_token = load_tokens()['access_token']
+    except(TypeError):
+        #this means that the tokens file is empty
+        print("No access token found")
+        dpg.set_value(error_display, f"Error: No access token found")
+        #set the color of the error message to red
+        dpg.configure_item(error_display, color=[255, 0, 0])
+        clear_error_message()
     user_name = load_tokens()['user_name']
     channel_namestr = dpg.get_value(user_data)
     channel_nameLow = str(channel_namestr).lower()
@@ -688,6 +710,8 @@ def start_streaming():
     global twitch_sock
     twitch_sock = connect_to_twitch()
     if twitch_sock:
+        dpg.set_value(enabled, "Twitch is on :)")
+        dpg.configure_item(enabled, color=[0, 255, 0])
         # Start receive_messages in a new thread
         thread = Thread(target=receive_messages, args=(twitch_sock,))
         thread.start()
@@ -710,6 +734,23 @@ def clear_error_message():
     threading.Timer(10.0, lambda: dpg.configure_item(error_display, bullet=False)).start()
 
 def select_manual_viewer_callback(sender, app_data, user_data):
+    if dpg.get_value(user_data) == None or dpg.get_value(user_data) == "" or dpg.get_value(user_data) == "31" or dpg.get_value(user_data) == " ": #check if the channel name is empty
+        print("No channel name entered")
+        dpg.set_value(error_display, f"Error: No channel name entered")
+        #set the color of the error message to red
+        dpg.configure_item(error_display, color=[255, 0, 0])
+        clear_error_message()
+        return None
+    
+    #check if twitch is on
+    if dpg.get_value(enabled) == "Twitch is off :(":
+        print("Twitch is off")
+        dpg.set_value(error_display, f"Error: Twitch is off")
+        #set the color of the error message to red
+        dpg.configure_item(error_display, color=[255, 0, 0])
+        clear_error_message()
+        return None
+
     num_viewers = dpg.get_value("num_viewers_input")
     selected_viewer_count = num_viewers
     selected_viewers = []
@@ -853,13 +894,15 @@ with dpg.window(label="Chattastic", tag='chat', no_resize=True,):
         dpg.add_spacer(height=2)
         viewer_number_picker = dpg.add_input_int(label="Number of Viewers", tag="num_viewers_input", default_value=1, min_value=1, width=175, callback=on_viewer_number_change)
         dpg.add_spacer(height=2)
-        tts_box = dpg.add_checkbox(label="Read Viewer Messages in TTS (Text-to-Speech)", default_value=True)
         with dpg.group(horizontal=True):
             start_twitch_button = dpg.add_button(label="Start Twitch", callback=start_twitch_button_callback)
-            enabled = dpg.add_text("", wrap=390, label="is_twitch_enabled")
+            enabled = dpg.add_text("Twitch is off :(", wrap=390, label="is_twitch_enabled", color=(255, 0, 0))
         dpg.add_text("Note: You will need to Start Twitch before doing anything.", wrap=390)
         dpg.add_spacer(height=2)
+        tts_box = dpg.add_checkbox(label="Read Viewer Messages in TTS (Text-to-Speech)", default_value=True)
+        dpg.add_spacer(height=2)
         dpg.add_button(label="Open Pages", callback=open_viewer_pages)
+        dpg.add_spacer(height=2)
         # add another dropdown inside of this one labeled "Random Viewer Picker"
         with dpg.tree_node(label="Select Viewer Randomly"):
             dpg.add_spacer(height=2)
