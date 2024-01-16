@@ -20,6 +20,16 @@ import audioop
 import sounddevice as sd
 import numpy as np
 from flask import jsonify
+from flask_socketio import SocketIO, emit 
+import soundfile as sf
+from pydub import AudioSegment
+import simpleaudio as sa
+
+import logging
+# Set logging level to WARNING to reduce console output
+# This will stop logging every GET request
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.WARNING)
 
 import warnings
 from flask import Flask, render_template
@@ -43,93 +53,27 @@ selected_viewer = ""
 
 viewers_list = []
 
+global entered_users
+entered_users = []
+
 # Global variable to store the number of selected viewers
 selected_viewer_count = 1
 
-global sock
-sock = None
+global twitch_sock
+twitch_sock = None
 
 global selected_viewers
-
-app = Flask(__name__)
-
-@app.route('/')
-def home():
-    return 'Welcome to the Flask server!'
-
-@app.route('/viewer/<viewer_name>')
-def show_viewer(viewer_name):
-    if viewer_name in selected_viewers:
-        # Placeholder image URLs or integrate an API for random images
-        image_urls = ["https://example.com/image1.jpg", "https://example.com/image2.jpg", "https://example.com/image3.jpg"]
-        random_image = random.choice(image_urls)
-        viewer_message = viewer_messages.get(viewer_name, "No new messages")
-        return f'''
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>Viewer Page</title>
-                <style>
-                    body {{
-                        background-color: transparent !important;
-                        color: #000; /* Set text color for visibility */
-                        font-family: Arial, sans-serif; /* Optional: Change font */
-                    }}
-                    /* Add more custom styles as needed */
-                </style>
-            </head>
-            <body>
-                <h1>Welcome, {viewer_name}!</h1>
-                <img src="{random_image}" alt="Random Image">
-                <p id="latestMessage">Latest Message: {viewer_message}</p>
-                <script>
-                    function updateMessage() {{
-                        fetch('/viewer/{viewer_name}/message')
-                            .then(response => response.json())
-                            .then(data => {{
-                                document.getElementById("latestMessage").innerText = "Latest Message: " + data.message;
-                            }})
-                            .catch(error => console.error('Error:', error));
-                    }}
-                    setInterval(updateMessage, 2000); // Update every 5 seconds
-                </script>
-            </body>
-            </html>
-        '''
-    else:
-        return "Viewer not found", 404
-    
-@app.route('/viewer/<viewer_name>/message')
-def get_viewer_message(viewer_name):
-    if viewer_name in selected_viewers:
-        viewer_message = viewer_messages.get(viewer_name, "No new messages")
-        return jsonify({"message": viewer_message})
-    else:
-        return jsonify({"message": "Viewer not found"}), 404
-
-
-
-# Run Flask app in a separate thread
-def run_flask_app():
-    app.run(debug=False, port=5000, use_reloader=False)
-
-flask_thread = Thread(target=run_flask_app, daemon=True)
-flask_thread.start()
-
+selected_viewers = []
 
 def open_viewer_pages():
     for viewer in selected_viewers:
-        webbrowser.open_new_tab(f'http://localhost:5000/viewer/{viewer}')
+        webbrowser.open(f'http://localhost:5000/viewer/{viewer}', new=2)
 
 viewer_messages = {}
 
 def update_viewer_message(viewer_name, message):
     global viewer_messages
     viewer_messages[viewer_name] = message
-
-# Initialize PyAudio for TTS audio monitoring
-py_audio = pyaudio.PyAudio()
-audio_stream = py_audio.open(format=pyaudio.paInt16, channels=1, rate=44100, input=True, frames_per_buffer=1024)
 
 def find_speaker_id(device_name):
     devices = sd.query_devices()
@@ -163,33 +107,183 @@ def get_audio_devices():
     
     return microphones, speakers, other
 
-def play_audio(filename):
-    try:
-        print("Playing audio")
-        playsound(filename)
-    finally:
-        if os.path.exists(filename):
-            os.remove(filename)
-            print(f"Deleted {filename}")
+def handle_enter_command(username):
+    if username not in entered_users:
+        entered_users.append(username)
+        print(f"{username} has entered!")
 
-def speak_message(message, username, subtitle):
+app = Flask(__name__)
+socketio = SocketIO(app)
+viewer_messages = {}
+
+@app.route('/')
+def home():
+    return 'Welcome to the Flask server!'
+
+@app.route('/viewer/<viewer_name>')
+def show_viewer(viewer_name):
+    if viewer_name in selected_viewers:
+        # Placeholder image URLs or integrate an API for random images
+        image_urls = ["https://motionarray.imgix.net/preview-165955-sHrBnk2lYE-high_0005.jpg"]
+        random_image = random.choice(image_urls)
+        viewer_message = viewer_messages.get(viewer_name, "No new messages")
+        return f'''
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Viewer Page</title>
+                <style>
+                    body {{
+                        background-color: transparent !important;
+                        color: #000;
+                        font-family: Arial, sans-serif;
+                    }}
+                    #viewerImage {{
+                        transition: all 0.1s ease;  // Smooth transition for image transformation
+                    }}
+                </style>
+                <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.0/socket.io.js"></script>
+            </head>
+            <body>
+                <h1>Welcome, {viewer_name}!</h1>
+                <img id="viewerImage" src="{random_image}" alt="Random Image" width="200" height="200">
+                <p id="latestMessage">Latest Message: {viewer_message}</p>
+                <script>
+                    const socket = io();
+                    
+                    socket.on('start_animation', function(data) {{
+                        const duration = data.duration;
+                        startSquashAndStretchAnimation(duration);
+                    }});
+
+                    function squashAndStretch(isSquashing) {{
+                        const image = document.getElementById('viewerImage');
+                        if (isSquashing) {{
+                            image.style.width = '250px';  // Squash
+                            image.style.height = '150px';
+                        }} else {{
+                            image.style.width = '200px';  // Stretch back to original size
+                            image.style.height = '200px';
+                        }}
+                    }}
+
+                    function startSquashAndStretchAnimation(duration) {{
+                        const image = document.getElementById('viewerImage');
+                        const interval = duration / 10;  // Adjust this based on desired animation frequency
+
+                        let isSquashing = true;
+                        const animation = setInterval(() => {{
+                            squashAndStretch(isSquashing);
+                            isSquashing = !isSquashing;
+                        }}, interval * 1000);
+
+                        setTimeout(() => {{
+                            clearInterval(animation);
+                            squashAndStretch(false);  // Reset to original state
+                        }}, duration * 1000);
+                    }}
+
+                    function updateMessage() {{
+                        fetch('/viewer/{viewer_name}/message')
+                            .then(response => response.json())
+                            .then(data => {{
+                                document.getElementById("latestMessage").innerText = "Latest Message: " + data.message;
+                            }})
+                            .catch(error => console.error('Error:', error));
+                    }}
+                        setInterval(updateMessage, 500); // Update every 0.5 seconds
+                    </script>
+                </body>
+            </html>
+        '''
+    else:
+        return "Viewer not found", 404
+
+@app.route('/viewer/<viewer_name>/message')
+def get_viewer_message(viewer_name):
+    global selected_viewers
+    if viewer_name in selected_viewers:
+        viewer_message = viewer_messages.get(viewer_name, "No new messages")
+        return jsonify({"message": viewer_message})
+    else:
+        return jsonify({"message": "Viewer not found"}), 404
+
+def analyze_audio(data):
+    rms = np.sqrt(np.mean(np.square(data)))
+    return rms
+
+@socketio.on('connect')
+def handle_connect():
+    print("Client connected")
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    print("Client disconnected")
+
+def emit_audio_data(data):
+    analyzed_data = analyze_audio(data)
+    print("Volume:", analyzed_data)
+    socketio.emit('audio_data', {'volume': analyzed_data})
+
+def run_flask_app():
+    socketio.run(app, debug=False, port=5000, use_reloader=False)
+
+flask_thread = Thread(target=run_flask_app, daemon=True)
+flask_thread.start()
+
+# Initialize PyAudio for TTS audio monitoring
+py_audio = pyaudio.PyAudio()
+audio_stream = py_audio.open(format=pyaudio.paInt16, channels=1, rate=44100, input=True, frames_per_buffer=1024)
+
+speech_folder = "viewer_speeches"
+if not os.path.exists(speech_folder):
+    os.mkdir(speech_folder)
+
+# Assuming the functions analyze_audio and emit_audio_data are defined elsewhere in your code
+
+def play_audio(filename):
+    # Open the audio file
+    wf = wave.open(filename, 'rb')
+    audio_data = wf.readframes(wf.getnframes())
+
+    # Play audio
+    play_obj = sa.play_buffer(audio_data, wf.getnchannels(), wf.getsampwidth(), wf.getframerate())
+
+    # Wait for playback to finish
+    play_obj.wait_done()
+
+def save_tts_as_wav(text, filename):
+    tts = gTTS(text=text, lang='en')
+    tts.save("temp.mp3")
+    sound = AudioSegment.from_mp3("temp.mp3")
+    sound.export(filename, format="wav")
+    os.remove("temp.mp3")
+    print("Saved TTS as WAV")
+
+def speak_message(message, username, subtitle, socket):
     # Generate speech from text
     language = 'en'
+    username = username[:5]  # Make username the first 5 letters of their name
     text = f"{username} says {message}"
-    tts_object = gTTS(text=text, lang=language, slow=False)
-    tts_filename = "temp_message.mp3"
-    tts_object.save(tts_filename)
+    
+    # Create a unique filename for each user
+    tts_filename = f"{speech_folder}/{username}.wav"
+    
+    # Generate and save speech as WAV
+    save_tts_as_wav(text, tts_filename)
 
-    # Update GUI
+    # Update GUI - assuming you have a GUI setup
     dpg.set_value(message_display, f"{username}: {message}")
     dpg.configure_item(message_display, color=[255, 255, 255], bullet=True)
 
-    # Start playing the sound in a separate thread
-    threading.Thread(target=play_audio, args=(tts_filename,)).start()
+    sound = AudioSegment.from_file(tts_filename)
+    duration = len(sound) / 1000.0  # Duration in seconds
 
-def save_callback():
-    print("Save Clicked")
-    authenticate_with_twitch()
+    # Emit a start signal for animation
+    socketio.emit('start_animation', {'duration': duration})
+
+    # Start playing the sound in a separate thread and send audio data
+    threading.Thread(target=play_audio, args=(tts_filename,)).start()
 
 def save_tokens(access_token, refresh_token, user_id, user_name):
     with open(TOKEN_FILE, 'w') as file:
@@ -353,6 +447,36 @@ def get_random_chatter(channel_name, moderator_id, token, client_id, num_viewers
     #make the chatters name bold
     dpg.configure_item(user_display, bullet=True)
 
+def get_random_chatter_raffle(num_viewers=1):
+    global entered_users  # Make sure to use the global list
+
+    # Check if enough users have entered
+    if len(entered_users) < num_viewers:
+        print("Not enough viewers to pick from")
+        dpg.set_value(error_display, f"Error: Not enough viewers to pick from")
+        dpg.configure_item(error_display, color=[255, 0, 0])
+        clear_error_message()
+        return None
+
+    # Select random viewers from entered_users
+    try:
+        random_chatters = random.sample(entered_users, num_viewers)
+    except ValueError:
+        print("Error in selecting random viewers")
+        return None
+
+    # Print and display the selected viewers
+    print(random_chatters)
+    random_chatters_str = ', '.join(random_chatters)
+    dpg.set_value(user_display, random_chatters_str)
+    dpg.configure_item(user_display, color=[255, 255, 255])
+    dpg.configure_item(user_display, bullet=True)
+
+    # Clear the entered users list for the next raffle
+    entered_users.clear()
+    print("The raffle is complete. The entered users list has been cleared for the next raffle.")
+
+
 
 def get_broadcaster_id(client_id, token, channel_login):
     url = f"https://api.twitch.tv/helix/users?login={channel_login}"
@@ -377,6 +501,7 @@ def get_broadcaster_id(client_id, token, channel_login):
 
 def pick_random_viewer_callback():
     global selected_channel
+    global entered_users
     print("Pick Random Viewer Clicked")
     try:
         access_token = load_tokens()['access_token']
@@ -402,6 +527,7 @@ def pick_random_viewer_callback():
     sub_only = dpg.get_value(sub_box)
     follower_only = dpg.get_value(follower_box)
     tts_enabled = dpg.get_value(tts_box)
+    raffle_box = dpg.get_value(raffle_checkbox)
 
     num_viewers = dpg.get_value(viewer_number_picker)
     selected_viewer_count = num_viewers
@@ -426,17 +552,42 @@ def pick_random_viewer_callback():
         # Logic to pick from Followers only
         # Call a different function with appropriate parameters
         # Example: get_random_follower_chatter(selected_channel, user_id, access_token, CLIENT_ID)
+    elif raffle_box:
+        # Logic to pick from all chatters
+        get_random_chatter_raffle(num_viewers)
     else:
         # Default logic (pick from all chatters)
         get_random_chatter(selected_channel, user_id, access_token, CLIENT_ID, num_viewers)
 
     #check if a socket is already open
-    if tts_enabled:
+    #if tts_enabled:
+    #    try:
+    #        twitch_sock.close()
+    #        print("Socket closed")
+    #    except:
+    #        pass
+    #    start_streaming()
+
+def start_twitch_button_callback():
+    #check if a socket is already open
+        print("Start Twitch Clicked")
+        if user_data == None or user_data == "" or user_data == "31" or user_data == " ":
+            print("No channel name entered")
+            dpg.set_value(error_display, f"Error: No channel name entered")
+            #set the color of the error message to red
+            dpg.configure_item(error_display, color=[255, 0, 0])
+            clear_error_message()
+            return None
         try:
-            sock.close()
+            twitch_sock.close()
             print("Socket closed")
+            dpg.set_value(enabled, "Twitch is off :(")
+            dpg.configure_item(enabled, color=[255, 0, 0])
         except:
             pass
+        #set the text of enabled to true
+        dpg.set_value(enabled, "Twitch is on :)")
+        dpg.configure_item(enabled, color=[0, 255, 0])
         start_streaming()
 
 
@@ -444,12 +595,12 @@ server = 'irc.chat.twitch.tv'
 port = 6667
 
 def connect_to_twitch():
-    global sock
+    global twitch_sock
 
     # Close existing socket connection if open
-    if sock is not None:
+    if twitch_sock is not None:
         try:
-            sock.close()
+            twitch_sock.close()
             print("Previous socket closed")
         except Exception as e:
             print(f"Error closing socket: {e}")
@@ -463,13 +614,13 @@ def connect_to_twitch():
     if dpg.get_value(tts_box):
         print(f"Connecting to channel: {channel_name}")
         try:
-            sock = socket.socket()
-            sock.connect((server, port))
-            sock.send(f"PASS oauth:jrx6m97t36yqkf5rgdn5gmb6n9dllb\n".encode('utf-8'))
-            sock.send(f"NICK {user_name}\n".encode('utf-8'))
-            sock.send(f"JOIN {channel_name}\n".encode('utf-8'))
+            twitch_sock = socket.socket()
+            twitch_sock.connect((server, port))
+            twitch_sock.send(f"PASS oauth:jrx6m97t36yqkf5rgdn5gmb6n9dllb\n".encode('utf-8'))
+            twitch_sock.send(f"NICK {user_name}\n".encode('utf-8'))
+            twitch_sock.send(f"JOIN {channel_name}\n".encode('utf-8'))
             print("Connected to Twitch IRC")
-            return sock
+            return twitch_sock
         except Exception as e:
             print(f"Error connecting to socket: {e}")
             return None
@@ -477,7 +628,7 @@ def connect_to_twitch():
         print("TTS not enabled")
         return None
 
-def receive_messages(sock):
+def receive_messages(twitch_sock):
     # Get manually selected viewers
     num_viewers = dpg.get_value("num_viewers_input")
     selected_viewer_count = num_viewers
@@ -495,14 +646,14 @@ def receive_messages(sock):
     selected_viewers = list(set(selected_viewers_manual + selected_viewers_random))
     print(f"Combined selected viewers: {selected_viewers}")
 
-    if sock is None:
+    if twitch_sock is None:
         print("Socket is None, not receiving messages.")
         return
 
     try:
         while True:
             try:
-                resp = sock.recv(2048).decode('utf-8')
+                resp = twitch_sock.recv(2048).decode('utf-8')
                 if len(resp) > 0:
                     if not resp.startswith(":tmi.twitch.tv"):
                         parts = resp.split(' ')
@@ -510,9 +661,12 @@ def receive_messages(sock):
                         message_start_index = resp.find(" :") + 2
                         message = resp[message_start_index:]
 
+                        if "!talk" in message.lower():
+                            handle_enter_command(username)
+
                         if username.lower() in (viewer.lower() for viewer in selected_viewers):
                             print(f"{username}: {message}")
-                            speak_message(message, username, message)
+                            speak_message(message, username, message, twitch_sock)
                             update_viewer_message(username, message)
                         else:
                             print("Message not from selected viewer, ignoring.")
@@ -524,14 +678,18 @@ def receive_messages(sock):
     except KeyboardInterrupt:
         pass
     finally:
-        sock.close()
+        twitch_sock.close()
+
+def clear_entered_users():
+    entered_users.clear()
+    print("Entered users list cleared.")
 
 def start_streaming():
-    global sock
-    sock = connect_to_twitch()
-    if sock:
+    global twitch_sock
+    twitch_sock = connect_to_twitch()
+    if twitch_sock:
         # Start receive_messages in a new thread
-        thread = Thread(target=receive_messages, args=(sock,))
+        thread = Thread(target=receive_messages, args=(twitch_sock,))
         thread.start()
 
 def initialize_authentication_status():
@@ -582,13 +740,13 @@ def select_manual_viewer_callback(sender, app_data, user_data):
     tts_enabled = dpg.get_value(tts_box)
 
     #check if a socket is already open
-    if tts_enabled:
-        try:
-            sock.close()
-            print("Socket closed")
-        except:
-            pass
-        start_streaming()
+    #if tts_enabled:
+    #    try:
+    #        twitch_sock.close()
+    #        print("Socket closed")
+    #    except:
+    #        pass
+    #    start_streaming()
 
 
 def update_viewers_list(channel_name, user_id, token, client_id):
@@ -696,11 +854,16 @@ with dpg.window(label="Chattastic", tag='chat', no_resize=True,):
         viewer_number_picker = dpg.add_input_int(label="Number of Viewers", tag="num_viewers_input", default_value=1, min_value=1, width=175, callback=on_viewer_number_change)
         dpg.add_spacer(height=2)
         tts_box = dpg.add_checkbox(label="Read Viewer Messages in TTS (Text-to-Speech)", default_value=True)
-        dpg.add_text("Note: You will need to enable TTS before picking a viewer.", wrap=390)
+        with dpg.group(horizontal=True):
+            start_twitch_button = dpg.add_button(label="Start Twitch", callback=start_twitch_button_callback)
+            enabled = dpg.add_text("", wrap=390, label="is_twitch_enabled")
+        dpg.add_text("Note: You will need to Start Twitch before doing anything.", wrap=390)
         dpg.add_spacer(height=2)
         dpg.add_button(label="Open Pages", callback=open_viewer_pages)
         # add another dropdown inside of this one labeled "Random Viewer Picker"
-        with dpg.tree_node(label="Select Viewer Randomly"):            
+        with dpg.tree_node(label="Select Viewer Randomly"):
+            dpg.add_spacer(height=2)
+            raffle_checkbox = dpg.add_checkbox(label="Raffle Mode")         
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Pick Random Viewer", callback=pick_random_viewer_callback)
                 dpg.add_button(label="Clear Viewer", callback=clear_random_viewer_callback)
