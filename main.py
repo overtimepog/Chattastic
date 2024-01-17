@@ -892,7 +892,7 @@ with dpg.window(label="Chattastic", tag='chat', no_resize=True,):
         dpg.add_spacer(height=2)
         user_data = dpg.add_input_text(label="Channel Name", hint="Enter Channel Name", width=175)
         dpg.add_spacer(height=2)
-        viewer_number_picker = dpg.add_input_int(label="Number of Viewers", tag="num_viewers_input", default_value=1, min_value=1, width=175, callback=on_viewer_number_change)
+        viewer_number_picker = dpg.add_input_int(label="Number of Viewers", tag="num_viewers_input", default_value=1, min_value=1, width=175, callback=on_viewer_number_change, min_clamped=True)
         dpg.add_spacer(height=2)
         with dpg.group(horizontal=True):
             start_twitch_button = dpg.add_button(label="Start Twitch", callback=start_twitch_button_callback)
