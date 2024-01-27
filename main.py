@@ -946,5 +946,3 @@ with dpg.window(label="Chattastic", tag='chat', no_resize=True,):
 dpg.show_viewport()
 dpg.start_dearpygui()
 dpg.destroy_context()
-
-#Sociology Google Classroom Code: fwhtqtp
