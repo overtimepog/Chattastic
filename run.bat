@@ -24,7 +24,7 @@ cd Chattastic
 
 :: Install dependencies
 echo Installing dependencies...
-python -m pip install dearpygui pyaudio gtts playsound@git+https://github.com/taconi/playsound requests sounddevice flask numpy
+python -m pip install -r requirements.txt
 
 :: Run the application
 echo Starting Chattastic...
