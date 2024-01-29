@@ -6,7 +6,6 @@ Requests
 sounddevice
 flask
 numpy
-simpleaudio
 soundfile
 flask_socketio
 pydub

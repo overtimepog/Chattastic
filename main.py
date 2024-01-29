@@ -23,13 +23,15 @@ from flask import jsonify
 from flask_socketio import SocketIO, emit 
 import soundfile as sf
 from pydub import AudioSegment
-import simpleaudio as sa
-
+import traceback
 import logging
+
 # Set logging level to WARNING to reduce console output
 # This will stop logging every GET request
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.WARNING)
+
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 import warnings
 from flask import Flask, render_template
@@ -56,6 +58,8 @@ viewers_list = []
 global entered_users
 entered_users = []
 
+audio_threads = []
+
 # Global variable to store the number of selected viewers
 selected_viewer_count = 1
 
@@ -65,9 +69,8 @@ twitch_sock = None
 global selected_viewers
 selected_viewers = []
 
-def open_viewer_pages():
-    for viewer in selected_viewers:
-        webbrowser.open(f'http://localhost:5000/viewer/{viewer}', new=2)
+def open_viewer_page():
+    webbrowser.open(f'http://localhost:5000/viewer', new=2)
 
 viewer_messages = {}
 
@@ -120,13 +123,25 @@ viewer_messages = {}
 def home():
     return 'Welcome to the Flask server!'
 
-@app.route('/viewer/<viewer_name>')
-def show_viewer(viewer_name):
-    if viewer_name in selected_viewers:
-        # Placeholder image URLs or integrate an API for random images
-        image_urls = ["https://motionarray.imgix.net/preview-165955-sHrBnk2lYE-high_0005.jpg"]
-        random_image = random.choice(image_urls)
-        viewer_message = viewer_messages.get(viewer_name, "No new messages")
+@app.route('/viewer')
+def show_viewer():
+    try:
+        viewer_content = ""
+        for viewer_name in selected_viewers:
+            image_urls = ["https://motionarray.imgix.net/preview-165955-sHrBnk2lYE-high_0005.jpg"]
+            random_image = random.choice(image_urls)
+            viewer_message = viewer_messages.get(viewer_name, "No new messages")
+            viewer_content += f'''
+                <div>
+                    <h1>Welcome, {viewer_name}!</h1>
+                    <img class="viewerImage" id="viewerImage_{viewer_name}" src="{random_image}" alt="Random Image" width="200" height="200">
+                    <p id="latestMessage_{viewer_name}">Latest Message: {viewer_message}</p>
+                </div>
+            '''
+            print("Adding content for viewer: " + viewer_name)  # Log each viewer being processed
+
+        print("Finished processing viewers. Total viewers: " + str(len(selected_viewers)))  # Log after processing all viewers
+
         return f'''
             <!DOCTYPE html>
             <html>
@@ -138,75 +153,104 @@ def show_viewer(viewer_name):
                         color: #000;
                         font-family: Arial, sans-serif;
                     }}
-                    #viewerImage {{
-                        transition: all 0.1s ease;  // Smooth transition for image transformation
+                    .viewerImage {{
+                        width: 200px;
+                        height: 200px;
+                        transition: all 0.1s ease;
+                    }}
+                    .squash {{
+                        animation: squashAndStretch 1s ease-in-out infinite;
+                    }}
+                    @keyframes squashAndStretch {{
+                        0%, 100% {{
+                            width: 200px;
+                            height: 200px;
+                        }}
+                        50% {{
+                            width: 250px;
+                            height: 150px;
+                        }}
                     }}
                 </style>
                 <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.0/socket.io.js"></script>
             </head>
             <body>
-                <h1>Welcome, {viewer_name}!</h1>
-                <img id="viewerImage" src="{random_image}" alt="Random Image" width="200" height="200">
-                <p id="latestMessage">Latest Message: {viewer_message}</p>
+                {viewer_content}
                 <script>
                     const socket = io();
-                    
+                    console.log("Socket initialized");  // Log when socket is initialized
+
+                    const selected_viewers = {selected_viewers!r};
+                    console.log("Selected viewers:", selected_viewers);  // Log selected viewers
+
                     socket.on('start_animation', function(data) {{
-                        const duration = data.duration;
-                        startSquashAndStretchAnimation(duration);
+                        console.log("Starting animation for viewer:", data.viewer_name);  // Log when animation starts
+                        startSquashAndStretchAnimation(data.viewer_name, data.duration);
                     }});
 
-                    function squashAndStretch(isSquashing) {{
-                        const image = document.getElementById('viewerImage');
-                        if (isSquashing) {{
-                            image.style.width = '250px';  // Squash
-                            image.style.height = '150px';
+                    function startSquashAndStretchAnimation(viewer_name, duration) {{
+                        const image = document.getElementById('viewerImage_' + viewer_name);
+                        if (image) {{
+                            console.log("Applying animation to viewer image:", viewer_name);  // Log when applying animation
+                            image.classList.add('squash');
+                            setTimeout(() => {{
+                                console.log(`Animation ending for viewer ${viewer_name}.`);  // Log end of animation
+                                image.classList.remove('squash');
+                            }}, duration * 1000);
                         }} else {{
-                            image.style.width = '200px';  // Stretch back to original size
-                            image.style.height = '200px';
+                            console.error(`Image element not found for viewer ${viewer_name}.`);  // Log if image element is not found
                         }}
                     }}
 
-                    function startSquashAndStretchAnimation(duration) {{
-                        const image = document.getElementById('viewerImage');
-                        const interval = duration / 10;  // Adjust this based on desired animation frequency
-
-                        let isSquashing = true;
-                        const animation = setInterval(() => {{
-                            squashAndStretch(isSquashing);
-                            isSquashing = !isSquashing;
-                        }}, interval * 1000);
-
-                        setTimeout(() => {{
-                            clearInterval(animation);
-                            squashAndStretch(false);  // Reset to original state
-                        }}, duration * 1000);
+                    function updateMessage(viewer_name, message) {{
+                        console.log("Updating message for viewer:", viewer_name);  // Log when updating message
+                        document.getElementById("latestMessage_" + viewer_name).innerText = "Latest Message: " + message;
                     }}
 
-                    function updateMessage() {{
-                        fetch('/viewer/{viewer_name}/message')
+                    function fetchAndUpdateMessage(viewer_name) {{
+                        console.log("Fetching message for viewer:", viewer_name);  // Log when fetching message
+                        fetch('/viewer/' + viewer_name + '/message')
                             .then(response => response.json())
                             .then(data => {{
-                                document.getElementById("latestMessage").innerText = "Latest Message: " + data.message;
+                                console.log("Received message data for viewer:", viewer_name, data);  // Log received data
+                                updateMessage(viewer_name, data.message);
                             }})
-                            .catch(error => console.error('Error:', error));
+                            .catch(error => console.error("Error fetching message:", error));  // Log fetch errors
                     }}
-                        setInterval(updateMessage, 500); // Update every 0.5 seconds
-                    </script>
-                </body>
+
+                    function updateAllMessages() {{
+                        console.log("Updating all messages for viewers");  // Log updating of all messages
+                        selected_viewers.forEach(viewer_name => {{
+                            fetchAndUpdateMessage(viewer_name);
+                        }});
+                    }}
+
+                    setInterval(updateAllMessages, 500);
+
+                    socket.on('update_message', function(data) {{
+                        console.log("Received updated message for viewer:", data.viewer_name);  // Log updated message event
+                        updateMessage(data.viewer_name, data.message);
+                    }});
+                </script>
+            </body>
             </html>
         '''
-    else:
-        return "Viewer not found", 404
+    except Exception as e:
+        print(f"Error in show_viewer: {e}")  # Log any exceptions in Python
 
 @app.route('/viewer/<viewer_name>/message')
 def get_viewer_message(viewer_name):
-    global selected_viewers
-    if viewer_name in selected_viewers:
-        viewer_message = viewer_messages.get(viewer_name, "No new messages")
-        return jsonify({"message": viewer_message})
-    else:
-        return jsonify({"message": "Viewer not found"}), 404
+    try:
+        global selected_viewers
+        if viewer_name in selected_viewers:
+            viewer_message = viewer_messages.get(viewer_name, "No new messages")
+            print(f"Fetching message for viewer: {viewer_name}")
+            return jsonify({"message": viewer_message})
+        else:
+            return jsonify({"message": "Viewer not found"}), 404
+    except Exception as e:
+        print("Error in get_viewer_message for " + viewer_name + ": " + str(e))
+        return jsonify({"error": "Internal Server Error"}), 500
 
 def analyze_audio(data):
     rms = np.sqrt(np.mean(np.square(data)))
@@ -242,48 +286,57 @@ if not os.path.exists(speech_folder):
 # Assuming the functions analyze_audio and emit_audio_data are defined elsewhere in your code
 
 def play_audio(filename):
-    # Open the audio file
-    wf = wave.open(filename, 'rb')
-    audio_data = wf.readframes(wf.getnframes())
+    try:
+        logging.info("Playing audio: " + filename)
+        try:
+            # Play the audio
+            playsound(filename)
+        except Exception as e:
+            logging.error("Error playing audio: " + str(e))
+            traceback.print_exc()
 
-    # Play audio
-    play_obj = sa.play_buffer(audio_data, wf.getnchannels(), wf.getsampwidth(), wf.getframerate())
+        logging.info("Finished playing audio: " + filename)
 
-    # Wait for playback to finish
-    play_obj.wait_done()
+    except Exception as e:
+        logging.error("Error with audio file " + filename + ": " + str(e))
+        traceback.print_exc()
 
 def save_tts_as_wav(text, filename):
-    tts = gTTS(text=text, lang='en')
-    tts.save("temp.mp3")
-    sound = AudioSegment.from_mp3("temp.mp3")
-    sound.export(filename, format="wav")
-    os.remove("temp.mp3")
-    print("Saved TTS as WAV")
+    try:
+        tts = gTTS(text=text, lang='en')
+        tts.save("temp.mp3")
+        sound = AudioSegment.from_mp3("temp.mp3")
+        sound.export(filename, format="wav")
+        os.remove("temp.mp3")
+        print("Saved TTS as WAV")
+    except Exception as e:
+        print("Error in save_tts_as_wav: " + str(e))
+        traceback.print_exc()
 
-def speak_message(message, username, subtitle, socket):
-    # Generate speech from text
-    language = 'en'
-    username = username[:5]  # Make username the first 5 letters of their name
-    text = f"{username} says {message}"
-    
-    # Create a unique filename for each user
-    tts_filename = f"{speech_folder}/{username}.wav"
-    
-    # Generate and save speech as WAV
-    save_tts_as_wav(text, tts_filename)
+def speak_message(message, username, subtilte, twitch_sock):
+    try:
+        username = username.strip()  # Remove leading/trailing whitespace
+        usernamelessthan5 = username[:5].strip()  # Make sure it's sanitized
+        text = f"{usernamelessthan5} says {message.strip()}"
 
-    # Update GUI - assuming you have a GUI setup
-    dpg.set_value(message_display, f"{username}: {message}")
-    dpg.configure_item(message_display, color=[255, 255, 255], bullet=True)
+        speech_folder = "viewer_speeches"
+        tts_filename = os.path.join(speech_folder, f"{username}.wav")
+        save_tts_as_wav(text, tts_filename)
 
-    sound = AudioSegment.from_file(tts_filename)
-    duration = len(sound) / 1000.0  # Duration in seconds
+        # Update message display logic goes here
+        dpg.set_value(message_display, f"{username}: {message}")
 
-    # Emit a start signal for animation
-    socketio.emit('start_animation', {'duration': duration})
+        sound = AudioSegment.from_file(tts_filename)
+        duration = len(sound) / 1000.0
 
-    # Start playing the sound in a separate thread and send audio data
-    threading.Thread(target=play_audio, args=(tts_filename,)).start()
+        # Socket emission logic goes here
+        socketio.emit('start_animation', {'viewer_name': username, 'duration': duration})
+
+        threading.Thread(target=play_audio, args=(tts_filename,)).start()
+        #audio_threads.append(audio_thread)
+    except Exception as e:
+        print("Error in speak_message: " + str(e))
+        traceback.print_exc()
 
 def save_tokens(access_token, refresh_token, user_id, user_name):
     with open(TOKEN_FILE, 'w') as file:
@@ -471,7 +524,11 @@ def get_random_chatter_raffle(num_viewers=1):
     dpg.set_value(user_display, random_chatters_str)
     dpg.configure_item(user_display, color=[255, 255, 255])
     dpg.configure_item(user_display, bullet=True)
+    #add them to selected viewers
+    global selected_viewers
+    selected_viewers = random_chatters
 
+    print("Selected viewers:", selected_viewers)
     # Clear the entered users list for the next raffle
     entered_users.clear()
     print("The raffle is complete. The entered users list has been cleared for the next raffle.")
@@ -683,6 +740,7 @@ def receive_messages(twitch_sock):
                         message_start_index = resp.find(" :") + 2
                         message = resp[message_start_index:]
 
+                        #make this a text box so the user can pick what the command is :)
                         if "!talk" in message.lower():
                             handle_enter_command(username)
 
@@ -733,7 +791,9 @@ def clear_error_message():
     #clear the bullet
     threading.Timer(10.0, lambda: dpg.configure_item(error_display, bullet=False)).start()
 
-def select_manual_viewer_callback(sender, app_data, user_data):
+def select_manual_viewer_callback():
+    global selected_viewers
+    global user_data
     if dpg.get_value(user_data) == None or dpg.get_value(user_data) == "" or dpg.get_value(user_data) == "31" or dpg.get_value(user_data) == " ": #check if the channel name is empty
         print("No channel name entered")
         dpg.set_value(error_display, f"Error: No channel name entered")
@@ -760,6 +820,8 @@ def select_manual_viewer_callback(sender, app_data, user_data):
         if dpg.does_item_exist(viewer_selection_tag):
             selected_viewer = dpg.get_value(viewer_selection_tag)
             if selected_viewer:
+                #put it in lowercase
+                selected_viewer = selected_viewer.lower()
                 selected_viewers.append(selected_viewer)
 
     print(f"Manually selected viewers: {selected_viewers}")
@@ -901,7 +963,7 @@ with dpg.window(label="Chattastic", tag='chat', no_resize=True,):
         dpg.add_spacer(height=2)
         tts_box = dpg.add_checkbox(label="Read Viewer Messages in TTS (Text-to-Speech)", default_value=True)
         dpg.add_spacer(height=2)
-        dpg.add_button(label="Open Pages", callback=open_viewer_pages)
+        dpg.add_button(label="Open Page", callback=open_viewer_page)
         dpg.add_spacer(height=2)
         # add another dropdown inside of this one labeled "Random Viewer Picker"
         with dpg.tree_node(label="Select Viewer Randomly"):
@@ -945,4 +1007,3 @@ with dpg.window(label="Chattastic", tag='chat', no_resize=True,):
     
 dpg.show_viewport()
 dpg.start_dearpygui()
-dpg.destroy_context()
