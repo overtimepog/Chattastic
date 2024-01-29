@@ -132,7 +132,8 @@ def show_viewer():
             random_image = random.choice(image_urls)
             viewer_message = viewer_messages.get(viewer_name, "No new messages")
             viewer_content += f'''
-                <div>
+                <div class="draggable-viewer" id="viewerBox_{viewer_name}">
+                    <div class="move-icon">&#9776;</div>
                     <h1>Welcome, {viewer_name}!</h1>
                     <img class="viewerImage" id="viewerImage_{viewer_name}" src="{random_image}" alt="Random Image" width="200" height="200">
                     <p id="latestMessage_{viewer_name}">Latest Message: {viewer_message}</p>
@@ -148,6 +149,7 @@ def show_viewer():
             <head>
                 <title>Viewer Page</title>
                 <style>
+                    /* Existing styles */
                     body {{
                         background-color: transparent !important;
                         color: #000;
@@ -170,6 +172,33 @@ def show_viewer():
                             width: 250px;
                             height: 150px;
                         }}
+                    }}
+
+                    /* Styles for draggable viewers */
+                    .draggable-viewer {{
+                        width: 250px;
+                        padding: 10px;
+                        margin: 10px;
+                        background-color: #f0f0f0;
+                        border: 1px solid #ddd;
+                        position: absolute;
+                        cursor: move;
+                        box-shadow: 0px 0px 5px 0px rgba(0,0,0,0.15);
+                    }}
+                    .draggable-viewer:hover {{
+                        outline: 2px dashed #555;
+                    }}
+                    .move-icon {{
+                        display: none;
+                        position: absolute;
+                        top: 5px;
+                        right: 5px;
+                        cursor: pointer;
+                        font-size: 18px;
+                        color: #666;
+                    }}
+                    .draggable-viewer:hover .move-icon {{
+                        display: block;
                     }}
                 </style>
                 <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.0/socket.io.js"></script>
@@ -231,6 +260,46 @@ def show_viewer():
                         console.log("Received updated message for viewer:", data.viewer_name);  // Log updated message event
                         updateMessage(data.viewer_name, data.message);
                     }});
+
+                    // Function to make an element draggable
+                    function makeDraggable(elem) {{
+                        var pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+                        elem.onmousedown = dragMouseDown;
+
+                        function dragMouseDown(e) {{
+                            e = e || window.event;
+                            e.preventDefault();
+                            // Get the mouse cursor position at startup:
+                            pos3 = e.clientX;
+                            pos4 = e.clientY;
+                            document.onmouseup = closeDragElement;
+                            // Call a function whenever the cursor moves:
+                            document.onmousemove = elementDrag;
+                        }}
+
+                        function elementDrag(e) {{
+                            e = e || window.event;
+                            e.preventDefault();
+                            // Calculate the new cursor position:
+                            pos1 = pos3 - e.clientX;
+                            pos2 = pos4 - e.clientY;
+                            pos3 = e.clientX;
+                            pos4 = e.clientY;
+                            // Set the element's new position:
+                            elem.style.top = (elem.offsetTop - pos2) + "px";
+                            elem.style.left = (elem.offsetLeft - pos1) + "px";
+                            // Add snapping logic if needed
+                        }}
+
+                        function closeDragElement() {{
+                            // Stop moving when mouse button is released:
+                            document.onmouseup = null;
+                            document.onmousemove = null;
+                        }}
+                    }}
+
+                    // Apply makeDraggable to all viewer elements
+                    document.querySelectorAll('.draggable-viewer').forEach(makeDraggable);
                 </script>
             </body>
             </html>
