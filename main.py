@@ -383,12 +383,32 @@ def play_audio(filename):
 
 def save_tts_as_wav(text, filename):
     try:
-        tts = gTTS(text=text, lang='en')
-        tts.save("temp.mp3")
-        sound = AudioSegment.from_mp3("temp.mp3")
-        sound.export(filename, format="wav")
-        os.remove("temp.mp3")
-        print("Saved TTS as WAV")
+        # Define the path to your sound effect file
+        sound_effect_path = "fart_sound_effect.wav"
+        sound_effect = AudioSegment.from_wav(sound_effect_path)
+        
+        # Placeholder for the final combined audio
+        final_audio = AudioSegment.empty()
+
+        # Split the text on the cue '(fart)' and process each part
+        parts = text.split('(fart)')
+        for i, part in enumerate(parts):
+            if part:
+                # Generate TTS for this part of the text
+                tts = gTTS(text=part, lang='en')
+                tts.save("temp.mp3")
+                part_audio = AudioSegment.from_mp3("temp.mp3")
+                final_audio += part_audio
+                os.remove("temp.mp3")
+            
+            if i < len(parts) - 1:
+                # Add the sound effect, except after the last part
+                final_audio += sound_effect
+
+        # Export the combined audio to the specified filename
+        final_audio.export(filename, format="wav")
+        print("Saved TTS as WAV with sound effects")
+    
     except Exception as e:
         print("Error in save_tts_as_wav: " + str(e))
         traceback.print_exc()
