@@ -136,12 +136,12 @@ def show_viewer():
                     <div class="move-icon">&#9776;</div>
                     <h1>Welcome, {viewer_name}!</h1>
                     <img class="viewerImage" id="viewerImage_{viewer_name}" src="{random_image}" alt="Random Image" width="200" height="200">
-                    <p id="latestMessage_{viewer_name}">Latest Message: {viewer_message}</p>
+                    <p class="subtitle" id="subtitle_{viewer_name}"></p> <!-- Subtitle element -->
                 </div>
             '''
-            print("Adding content for viewer: " + viewer_name)  # Log each viewer being processed
+            print("Adding content for viewer: " + viewer_name)
 
-        print("Finished processing viewers. Total viewers: " + str(len(selected_viewers)))  # Log after processing all viewers
+        print("Finished processing viewers. Total viewers: " + str(len(selected_viewers)))
 
         return f'''
             <!DOCTYPE html>
@@ -149,7 +149,6 @@ def show_viewer():
             <head>
                 <title>Viewer Page</title>
                 <style>
-                    /* Existing styles */
                     body {{
                         background-color: transparent !important;
                         color: #000;
@@ -173,8 +172,6 @@ def show_viewer():
                             height: 150px;
                         }}
                     }}
-
-                    /* Styles for draggable viewers */
                     .draggable-viewer {{
                         width: 250px;
                         padding: 10px;
@@ -200,6 +197,12 @@ def show_viewer():
                     .draggable-viewer:hover .move-icon {{
                         display: block;
                     }}
+                    .subtitle {{
+                        font-size: 14px; /* Style for subtitles */
+                        color: #555;
+                        text-align: center;
+                        margin-top: 10px;
+                    }}
                 </style>
                 <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.0/socket.io.js"></script>
             </head>
@@ -213,8 +216,15 @@ def show_viewer():
                     console.log("Selected viewers:", selected_viewers);  // Log selected viewers
 
                     socket.on('start_animation', function(data) {{
-                        console.log("Starting animation for viewer:", data.viewer_name);  // Log when animation starts
+                        console.log("Starting animation for viewer:", data.viewer_name);
                         startSquashAndStretchAnimation(data.viewer_name, data.duration);
+                        const subtitleElement = document.getElementById('subtitle_' + data.viewer_name);
+                        if (subtitleElement) {{
+                            subtitleElement.innerText = data.subtitle; // Set the subtitle
+                            setTimeout(() => {{
+                                subtitleElement.innerText = ''; // Clear the subtitle after the animation
+                            }}, data.duration * 1000);
+                        }}
                     }});
 
                     function startSquashAndStretchAnimation(viewer_name, duration) {{
@@ -261,25 +271,21 @@ def show_viewer():
                         updateMessage(data.viewer_name, data.message);
                     }});
 
-                    // Function to make an element draggable
                     function makeDraggable(elem) {{
                         var pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
-                        elem.onmousedown = dragMouseDown;
 
-                        function dragMouseDown(e) {{
-                            e = e || window.event;
-                            e.preventDefault();
+                        elem.onmousedown = function(e) {{
+                            e.preventDefault(); // Prevent default drag behavior
                             // Get the mouse cursor position at startup:
                             pos3 = e.clientX;
                             pos4 = e.clientY;
                             document.onmouseup = closeDragElement;
                             // Call a function whenever the cursor moves:
                             document.onmousemove = elementDrag;
-                        }}
+                        }};
 
                         function elementDrag(e) {{
-                            e = e || window.event;
-                            e.preventDefault();
+                            e.preventDefault(); // Prevent text selection or other default actions
                             // Calculate the new cursor position:
                             pos1 = pos3 - e.clientX;
                             pos2 = pos4 - e.clientY;
@@ -288,7 +294,6 @@ def show_viewer():
                             // Set the element's new position:
                             elem.style.top = (elem.offsetTop - pos2) + "px";
                             elem.style.left = (elem.offsetLeft - pos1) + "px";
-                            // Add snapping logic if needed
                         }}
 
                         function closeDragElement() {{
@@ -298,14 +303,20 @@ def show_viewer():
                         }}
                     }}
 
-                    // Apply makeDraggable to all viewer elements
-                    document.querySelectorAll('.draggable-viewer').forEach(makeDraggable);
+                    // Apply the makeDraggable function to your elements after they are fully loaded
+                    document.addEventListener('DOMContentLoaded', function() {{
+                        var draggableElements = document.querySelectorAll('.draggable-viewer');
+                        draggableElements.forEach(function(elem) {{
+                            makeDraggable(elem);
+                        }});
+                    }});
                 </script>
             </body>
             </html>
         '''
     except Exception as e:
-        print(f"Error in show_viewer: {e}")  # Log any exceptions in Python
+        print("Error in show_viewer: " + str(e))
+        return "Error in show_viewer"
 
 @app.route('/viewer/<viewer_name>/message')
 def get_viewer_message(viewer_name):
@@ -392,14 +403,15 @@ def speak_message(message, username, subtilte, twitch_sock):
         tts_filename = os.path.join(speech_folder, f"{username}.wav")
         save_tts_as_wav(text, tts_filename)
 
-        # Update message display logic goes here
+        # Update message display logic
         dpg.set_value(message_display, f"{username}: {message}")
 
         sound = AudioSegment.from_file(tts_filename)
         duration = len(sound) / 1000.0
 
-        # Socket emission logic goes here
-        socketio.emit('start_animation', {'viewer_name': username, 'duration': duration})
+        # Socket emission logic
+        #change this so it sends the subtitle with it so it can displayed on the viewer page with their image
+        socketio.emit('start_animation', {'viewer_name': username, 'duration': duration, 'subtitle': subtilte})
 
         threading.Thread(target=play_audio, args=(tts_filename,)).start()
         #audio_threads.append(audio_thread)
@@ -810,7 +822,10 @@ def receive_messages(twitch_sock):
                         message = resp[message_start_index:]
 
                         #make this a text box so the user can pick what the command is :)
-                        if "!talk" in message.lower():
+                        #get the value of raffle_command
+                        raffle_command = dpg.get_value("raffle_command_input")
+                        #print("Raffle command:", raffle_command)
+                        if raffle_command in message.lower():
                             handle_enter_command(username)
 
                         if username.lower() in (viewer.lower() for viewer in selected_viewers):
@@ -1037,7 +1052,10 @@ with dpg.window(label="Chattastic", tag='chat', no_resize=True,):
         # add another dropdown inside of this one labeled "Random Viewer Picker"
         with dpg.tree_node(label="Select Viewer Randomly"):
             dpg.add_spacer(height=2)
-            raffle_checkbox = dpg.add_checkbox(label="Raffle Mode")         
+            with dpg.group(horizontal=True):
+                raffle_checkbox = dpg.add_checkbox(label="Raffle Mode")
+                #text box for command name
+                raffle_command_input = dpg.add_input_text(label="Command Name", hint="Enter Command Name", width=175, tag="raffle_command_input")    
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Pick Random Viewer", callback=pick_random_viewer_callback)
                 dpg.add_button(label="Clear Viewer", callback=clear_random_viewer_callback)
