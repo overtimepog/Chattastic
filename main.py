@@ -397,7 +397,12 @@ def speak_message(message, username, subtilte, twitch_sock):
     try:
         username = username.strip()  # Remove leading/trailing whitespace
         usernamelessthan5 = username[:5].strip()  # Make sure it's sanitized
-        text = f"{usernamelessthan5} says {message.strip()}"
+        #get the value of says_box
+        use_says = dpg.get_value("says_box")
+        if use_says:
+            text = f"{usernamelessthan5} says {message.strip()}"
+        else:
+            text = message.strip()
 
         speech_folder = "viewer_speeches"
         tts_filename = os.path.join(speech_folder, f"{username}.wav")
@@ -1047,6 +1052,7 @@ with dpg.window(label="Chattastic", tag='chat', no_resize=True,):
         dpg.add_text("Note: You will need to Start Twitch before doing anything.", wrap=390)
         dpg.add_spacer(height=2)
         tts_box = dpg.add_checkbox(label="Read Viewer Messages in TTS (Text-to-Speech)", default_value=True)
+        says_box = dpg.add_checkbox(label="Read Viewer names First (ex. username says hello)", default_value=False, tag="says_box")
         dpg.add_spacer(height=2)
         dpg.add_button(label="Open Page", callback=open_viewer_page)
         dpg.add_spacer(height=2)
