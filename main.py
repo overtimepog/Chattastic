@@ -833,7 +833,8 @@ def receive_messages(twitch_sock):
                             speak_message(message, username, message, twitch_sock)
                             update_viewer_message(username, message)
                         else:
-                            print("Message not from selected viewer, ignoring.")
+                            #print the message to the console
+                            print(f"{username}: {message}", "Message not from selected viewer, ignoring.")
                     else:
                         print("Server message received, ignoring.")
             except socket.error as e:
