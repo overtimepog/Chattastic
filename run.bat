@@ -1,4 +1,5 @@
 @echo off
+title CHATTASTIC DEBUG CONSOLE, DONT CLOSE
 echo Checking for Chattastic...
 
 :: Check for Python installation

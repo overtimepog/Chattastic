@@ -1036,7 +1036,7 @@ initialize_authentication_status()
 
 # GUI Code
 dpg.create_context()
-dpg.create_viewport(title='Chattastic', height=500, width=400, resizable=False)
+dpg.create_viewport(title='Chattastic', height=500, width=400, resizable=False, large_icon="clockred.ico", small_icon="clockred.ico")
 dpg.setup_dearpygui()
 
 with dpg.window(label="Chattastic", tag='chat', no_resize=True,):
