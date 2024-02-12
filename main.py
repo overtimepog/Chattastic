@@ -134,7 +134,7 @@ def show_viewer():
             viewer_content += f'''
                 <div class="draggable-viewer" id="viewerBox_{viewer_name}">
                     <div class="move-icon">&#9776;</div>
-                    <h1>Welcome, {viewer_name}!</h1>
+                    <h1>{viewer_name}!</h1>
                     <img class="viewerImage" id="viewerImage_{viewer_name}" src="{random_image}" alt="Random Image" width="200" height="200">
                     <p class="subtitle" id="subtitle_{viewer_name}"></p> <!-- Subtitle element -->
                 </div>
