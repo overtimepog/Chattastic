@@ -1,6 +1,6 @@
 import dearpygui.dearpygui as dpg
 import config
-from utils.auth import authenticate_with_twitch, cancel_auth, load_tokens, KickAuth
+from utils.auth import authenticate_with_twitch, cancel_auth, load_tokens, load_kick_tokens, KickAuth
 from utils.audio import get_audio_devices
 from api.twitch import get_random_filtered_chatters, get_random_chatter_raffle, start_twitch_button_callback
 from ui.viewer import open_viewer_page
@@ -166,9 +166,15 @@ def create_window():
         dpg.add_separator()
 
         # Other Buttons/Status
-        # 'enabled' might need rethinking - what does it represent? Chat connection? App status?
-        enabled = dpg.add_text("Twitch Status: Unknown", tag="enabled_status") # Example usage
-        dpg.add_button(label="Connect Twitch Chat", callback=start_twitch_button_callback) # Example button
+        # Chat connection status
+        enabled = dpg.add_text("Chat Status: Not Connected", tag="enabled_status")
+        
+        # Connection buttons
+        with dpg.group(horizontal=True):
+            dpg.add_button(label="Connect Twitch Chat", callback=start_twitch_button_callback)
+            from api.kick import start_kick_button_callback
+            dpg.add_button(label="Connect Kick Chat", callback=start_kick_button_callback)
+        
         dpg.add_button(label="Open Viewer Page", callback=open_viewer_page)
 
 def initialize_ui():
@@ -179,15 +185,29 @@ def initialize_ui():
     create_window()
     
     # Check initial authentication status
+    # Check Twitch auth
     tokens = load_tokens()
     if tokens and 'access_token' in tokens:
         # Validate token silently? Or just assume it's good initially.
         # For simplicity, just update UI if tokens exist
         config.IS_AUTHENTICATED = True # Assume true if tokens exist, validation happens on API call
         config.TWITCH_USER_ID = tokens.get('user_id') # Load user ID
-        print(f"Loaded existing tokens for User ID: {config.TWITCH_USER_ID}")
+        print(f"Loaded existing Twitch tokens for User ID: {config.TWITCH_USER_ID}")
         if dpg.does_item_exist(auth_status):
-            dpg.set_value(auth_status, "Authenticated (Cached)")
+            dpg.set_value(auth_status, "Twitch Authenticated (Cached)")
+            dpg.configure_item(auth_status, color=[0, 255, 0])
+    
+    # Check Kick auth
+    kick_tokens = load_kick_tokens()
+    if kick_tokens and 'access_token' in kick_tokens:
+        config.KICK_IS_AUTHENTICATED = True
+        print("Loaded existing Kick tokens")
+        if dpg.does_item_exist(auth_status):
+            # If both are authenticated, show that
+            if config.IS_AUTHENTICATED:
+                dpg.set_value(auth_status, "Twitch & Kick Authenticated")
+            else:
+                dpg.set_value(auth_status, "Kick Authenticated")
             dpg.configure_item(auth_status, color=[0, 255, 0])
     
     # Set up the viewport
@@ -202,11 +222,18 @@ def run_ui():
     
     # Cleanup (optional, e.g., stop threads if necessary)
     print("Shutting down application...")
-    # Add any cleanup needed for threads or resources
+    
+    # Clean up auth threads
     from utils.auth import auth_server_thread, httpd_server
     if auth_server_thread is not None and auth_server_thread.is_alive():
-        # Try to signal server shutdown if it's still running (unlikely after DPG loop ends)
+        # Try to signal server shutdown if it's still running
         if httpd_server:
             httpd_server.server_close_request = True
             # Attempt to unblock if needed (see cancel_auth)
         auth_server_thread.join(timeout=1.0) # Wait briefly for thread
+    
+    # Clean up Kick chat stream
+    if config.kick_chat_stream and config.kick_chat_stream.is_running():
+        print("Stopping Kick chat stream...")
+        config.kick_chat_stream.stop()
+        config.kick_chat_stream.join(timeout=3.0) # Give it time to shutdown gracefully

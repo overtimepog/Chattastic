@@ -34,6 +34,19 @@ def load_tokens():
             return None
     return None
 
+def load_kick_tokens():
+    if os.path.exists(config.KICK_TOKEN_FILE):
+        try:
+            with open(config.KICK_TOKEN_FILE, 'r') as file:
+                tokens = json.load(file)
+                if tokens and 'access_token' in tokens:
+                    config.KICK_IS_AUTHENTICATED = True
+                return tokens
+        except json.JSONDecodeError:
+            logging.error(f"Error decoding JSON from {config.KICK_TOKEN_FILE}. File might be corrupted.")
+            return None
+    return None
+
 
 class AuthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -323,10 +336,18 @@ class KickAuth:
         print("Authorization code received. Fetching access token...")
         token = self.exchange_code_for_token()
         print("Access token obtained:", token)
-        #TODO: this needs to be read as well for token refresh
-        #save it to a json file like twitch does 
-        with open('kick_tokens.json', 'w') as f:
+        
+        # Save token to config file
+        with open(config.KICK_TOKEN_FILE, 'w') as f:
             json.dump({'access_token': token}, f)
-        print("Access token saved to kick_tokens.json")
+        print(f"Access token saved to {config.KICK_TOKEN_FILE}")
+        
+        # Update authentication status
+        config.KICK_IS_AUTHENTICATED = True
+        
+        # Update UI if possible
+        if dpg.does_item_exist("auth_status"):
+            dpg.set_value("auth_status", "Kick Authenticated")
+            dpg.configure_item("auth_status", color=[0, 255, 0])
         
         return token

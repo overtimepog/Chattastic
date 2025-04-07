@@ -22,6 +22,10 @@ IS_AUTHENTICATED = False  # Flag to track authentication status
 KICK_CLIENT_ID = '01JR6H958JM9ZCH9T2F2WVECYW'
 KICK_CLIENT_SECRET = 'f9c6a68fdd6b010639be87b8902dc54f0ae62c087008e6533263b6453573cf67'
 KICK_REDIRECT_URI = 'http://localhost:3000/'
+KICK_TOKEN_FILE = 'kick_tokens.json'
+KICK_USER_ID = None  # Store the Kick user ID after authentication
+KICK_IS_AUTHENTICATED = False  # Flag to track Kick authentication status
+kick_chat_stream = None  # Store the KickChatStream instance
 
 # Global variables
 selected_channel = ""
