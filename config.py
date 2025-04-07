@@ -26,6 +26,10 @@ KICK_TOKEN_FILE = 'kick_tokens.json'
 KICK_USER_ID = None  # Store the Kick user ID after authentication
 KICK_IS_AUTHENTICATED = False  # Flag to track Kick authentication status
 kick_chat_stream = None  # Store the KickChatStream instance
+kick_channel_id = None  # Store the current Kick channel ID
+kick_channel_name = ""  # Store the current Kick channel name
+kick_chat_messages = []  # Store the Kick chat messages
+kick_chat_connected = False  # Flag to track Kick chat connection status
 
 # Global variables
 selected_channel = ""

@@ -1,5 +1,5 @@
 @echo off
-title CHATTASTIC DEBUG CONSOLE, DONT CLOSE
+title CHATTASTIC WEB UI CONSOLE, DONT CLOSE
 echo Checking for Chattastic...
 
 :: Check for Python installation
@@ -10,26 +10,14 @@ if %errorlevel% neq 0 (
     python-3.11.0-amd64.exe /passive PrependPath=1
 )
 
-:: Check if main.py exists
-if exist main.py (
-    echo main.py found. Chattastic is already cloned.
-    goto InstallDependencies
-) else (
-    echo main.py not found. Cloning Chattastic repository...
-    git clone https://github.com/overtimepog/Chattastic.git
-)
-
-:InstallDependencies
-:: Navigate to the Chattastic directory
-cd Chattastic
-
 :: Install dependencies
 echo Installing dependencies...
 python -m pip install -r requirements.txt
 
-:: Run the application
-echo Starting Chattastic...
-python main.py
+:: Run the application using Uvicorn
+echo Starting Chattastic Web UI with FastAPI...
+echo Access the web interface at http://localhost:8000
+python run.py
 
-echo Chattastic installation and launch script has completed.
+echo Chattastic Web UI has stopped.
 pause

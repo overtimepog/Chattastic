@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chattastic Web UI</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <h1>Chattastic Control Panel</h1>
+
+    <div id="status-section">
+        <h2>Status</h2>
+        <p>Twitch Authenticated: <span id="twitch-auth-status">No</span></p>
+        <p>Kick Authenticated: <span id="kick-auth-status">No</span></p>
+        <p>WebSocket Status: <span id="ws-status">Disconnected</span></p>
+    </div>
+
+    <div id="auth-section">
+        <h2>Authentication</h2>
+        <button id="auth-twitch-btn">Authenticate with Twitch</button>
+        <button id="auth-kick-btn">Authenticate with Kick</button>
+        <!-- Redirect handling might need specific backend logic -->
+        <p id="auth-message"></p>
+    </div>
+
+    <div id="channel-section">
+        <h2>Channel Selection</h2>
+        <label for="channel-input">Channel Name:</label>
+        <input type="text" id="channel-input" placeholder="Enter channel name">
+        <button id="connect-twitch-chat-btn">Connect Twitch Chat</button>
+        <button id="connect-kick-chat-btn">Connect Kick Chat</button>
+        <p>Current Twitch Channel: <span id="current-twitch-channel">None</span></p>
+        <p>Current Kick Channel: <span id="current-kick-channel">None</span></p>
+    </div>
+
+    <div id="viewer-section">
+        <h2>Viewers</h2>
+        <label for="viewer-count-select">Select Viewers:</label>
+        <select id="viewer-count-select">
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+        </select>
+        <button id="select-random-viewers-btn">Select Random Viewers</button>
+        <h3>Selected Viewers:</h3>
+        <ul id="selected-viewers-list">
+            <!-- Selected viewers will be listed here -->
+        </ul>
+        <h3>All Viewers:</h3>
+        <ul id="all-viewers-list">
+            <!-- All viewers will be listed here -->
+        </ul>
+    </div>
+
+    <div id="chat-section">
+        <h2>Chat Messages</h2>
+        <div id="chat-messages">
+            <!-- Chat messages will appear here -->
+        </div>
+    </div>
+
+    <div id="audio-section">
+        <h2>Audio Control</h2>
+        <button id="speak-selected-btn">Speak Selected Viewer Messages</button>
+        <!-- Add more controls as needed -->
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>

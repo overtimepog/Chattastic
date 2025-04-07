@@ -1,0 +1,87 @@
+body {
+    font-family: sans-serif;
+    margin: 20px;
+    background-color: #f4f4f4;
+}
+
+h1, h2, h3 {
+    color: #333;
+}
+
+div[id$="-section"] {
+    background-color: #fff;
+    border: 1px solid #ddd;
+    padding: 15px;
+    margin-bottom: 15px;
+    border-radius: 5px;
+}
+
+button {
+    padding: 8px 15px;
+    margin: 5px;
+    cursor: pointer;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 3px;
+}
+
+button:hover {
+    background-color: #0056b3;
+}
+
+input[type="text"], select {
+    padding: 8px;
+    margin: 5px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+}
+
+ul {
+    list-style: none;
+    padding: 0;
+}
+
+li {
+    background-color: #eee;
+    padding: 5px;
+    margin-bottom: 3px;
+    border-radius: 3px;
+}
+
+#chat-messages {
+    height: 200px;
+    overflow-y: scroll;
+    border: 1px solid #ccc;
+    padding: 10px;
+    background-color: #f9f9f9;
+    margin-top: 10px;
+}
+
+#chat-messages p {
+    margin: 0 0 5px 0;
+    padding: 3px;
+    border-bottom: 1px dotted #ddd;
+}
+
+#ws-status.connected {
+    color: green;
+    font-weight: bold;
+}
+
+#ws-status.disconnected {
+    color: red;
+    font-weight: bold;
+}
+
+#twitch-auth-status.authenticated,
+#kick-auth-status.authenticated {
+    color: green;
+    font-weight: bold;
+}
+
+#twitch-auth-status.not-authenticated,
+#kick-auth-status.not-authenticated {
+    color: red;
+    font-weight: bold;
+}

@@ -1,10 +1,24 @@
-dearpygui
+# Web UI dependencies
+Requests # Keep requests as it's used for API calls
+
+# Audio processing
 gTTS
 playsound@git+https://github.com/taconi/playsound
-Requests
 sounddevice
-flask
 numpy
 soundfile
-flask_socketio
 pydub
+
+# Async HTTP requests
+aiohttp
+aiodns # Added for aiohttp resolver
+
+# FastAPI & Web Server
+fastapi
+uvicorn[standard]
+python-multipart # Often needed for form data with FastAPI
+websockets # Explicitly add for FastAPI WebSocket support
+
+# Optional: Keep DearPyGui for backward compatibility if needed
+# dearpygui
+# Removed: flask, flask_socketio
