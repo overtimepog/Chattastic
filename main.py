@@ -29,7 +29,6 @@ import logging
 import base64
 import hashlib
 import urllib.parse
-import kickpython
 import secrets
 
 # Set logging level to WARNING to reduce console output
@@ -674,10 +673,6 @@ def authenticate_with_twitch():
     time.sleep(1)
     webbrowser.open(AUTH_URL)
 
-KICK_CLIENT_ID = '01JR6H958JM9ZCH9T2F2WVECYW'
-KICK_CLIENT_SECRET = 'f9c6a68fdd6b010639be87b8902dc54f0ae62c087008e6533263b6453573cf67'
-KICK_REDIRECT_URI = 'http://localhost:3000/'
-
 class KickAuth:
     def __init__(self):
         self.code_verifier = self.generate_code_verifier()
@@ -764,7 +759,16 @@ class KickAuth:
         print("Authorization code received. Fetching access token...")
         token = self.exchange_code_for_token()
         print("Access token obtained:", token)
+        #TODO: this needs to be read as well for token refresh
+        #save it to a json file like twitch does 
+        with open('kick_tokens.json', 'w') as f:
+            json.dump({'access_token': token}, f)
+        print("Access token saved to kick_tokens.json")
+        
         return token
+
+class KickApiHelper:
+    pass
 
 # Global reference to the auth server instance
 httpd_server = None
