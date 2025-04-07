@@ -7,6 +7,7 @@ import random
 
 import config
 from utils.auth import load_tokens
+from utils.ui_utils import clear_error_message_after_delay
 
 def handle_enter_command(username):
     if username not in config.entered_users:
@@ -176,16 +177,6 @@ def get_broadcaster_id(client_id, token, channel_login):
     except json.JSONDecodeError as e:
         print(f"Error decoding JSON response for broadcaster ID {channel_login}: {e}")
         return None
-
-def clear_error_message_after_delay(seconds=5):
-     """Clears the error message display after a delay."""
-     def clear():
-         time.sleep(seconds)
-         if dpg.does_item_exist("error_display"):
-             dpg.set_value("error_display", "")
-     # Run clearing in a separate thread to avoid blocking
-     from threading import Thread
-     Thread(target=clear, daemon=True).start()
 
 # Function to get chatters' usernames and pick random ones based on filters
 def get_random_filtered_chatters(channel_name, moderator_id, token, client_id, num_viewers=1, vip_only=False, mod_only=False, sub_only=False, follower_only=False):

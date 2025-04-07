@@ -221,20 +221,31 @@ def run_auth_server():
 
 
 def cancel_auth():
+    # Reset the auth status in UI
+    def reset_auth_status():
+        if dpg.does_item_exist("auth_status"):
+            dpg.set_value("auth_status", "Not Authenticated")
+            dpg.configure_item("auth_status", color=[255, 0, 0])
+            
     print("Cancel Auth Clicked")
     config.IS_AUTHENTICATED = False
+    config.KICK_IS_AUTHENTICATED = False
     config.TWITCH_USER_ID = None
     # Attempt to delete the tokens file
     if os.path.exists(config.TOKEN_FILE):
         try:
             os.remove(config.TOKEN_FILE)
             print("Tokens file deleted.")
+            reset_auth_status()
         except OSError as e:
             print(f"Error deleting tokens file: {e}")
-    # Reset the auth status in UI
-    if dpg.does_item_exist("auth_status"):
-        dpg.set_value("auth_status", "Not Authenticated")
-        dpg.configure_item("auth_status", color=[255, 0, 0])
+    if os.path.exists(config.KICK_TOKEN_FILE):
+        try:
+            os.remove(config.KICK_TOKEN_FILE)
+            print("Kick tokens file deleted.")
+            reset_auth_status()
+        except OSError as e:
+            print(f"Error deleting Kick tokens file: {e}")
 
     # Attempt to shutdown the auth server if it's running
     global httpd_server

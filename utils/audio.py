@@ -6,7 +6,6 @@ import traceback
 import time
 import numpy as np
 import sounddevice as sd
-import pyaudio
 from gtts import gTTS
 from playsound import playsound
 from pydub import AudioSegment
@@ -14,9 +13,6 @@ import re
 
 import config
 from ui.viewer import socketio
-
-# Initialize PyAudio for TTS audio monitoring
-py_audio = pyaudio.PyAudio()
 
 def find_speaker_id(device_name):
     devices = sd.query_devices()

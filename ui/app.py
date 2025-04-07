@@ -4,6 +4,7 @@ from utils.auth import authenticate_with_twitch, cancel_auth, load_tokens, load_
 from utils.audio import get_audio_devices
 from api.twitch import get_random_filtered_chatters, get_random_chatter_raffle, start_twitch_button_callback
 from ui.viewer import open_viewer_page
+from utils.ui_utils import clear_error_message_after_delay
 
 # --- UI Element Variables ---
 auth_status = None
@@ -40,6 +41,14 @@ def pick_random_viewer_callback():
     if not config.IS_AUTHENTICATED:
         print("Not Authenticated")
         dpg.set_value(error_display, "Error: Please authenticate with Twitch first.")
+        dpg.configure_item(error_display, color=[255, 0, 0])
+        from api.twitch import clear_error_message_after_delay
+        clear_error_message_after_delay(5)
+        return
+    
+    if not config.KICK_IS_AUTHENTICATED:
+        print("Not Authenticated with Kick")
+        dpg.set_value(error_display, "Error: Please authenticate with Kick first.")
         dpg.configure_item(error_display, color=[255, 0, 0])
         from api.twitch import clear_error_message_after_delay
         clear_error_message_after_delay(5)
@@ -129,14 +138,14 @@ def create_window():
 
         # Channel Input and Viewer Selection
         with dpg.group(horizontal=True):
-            dpg.add_text("Enter Twitch Channel Name:")
-            user_data = dpg.add_input_text(label="", default_value="", width=200) # Assign to global
+            dpg.add_text("Enter Channel Name:")
+            user_data = dpg.add_input_text(label="", default_value="", width=200, tag="user_data") # Assign to global
             dpg.add_text("Number of Viewers to Pick:")
             viewer_number_picker = dpg.add_input_int(label="", default_value=1, min_value=1, max_value=100, width=100) # Assign
 
         dpg.add_button(label="Pick Random Viewer(s)", callback=pick_random_viewer_callback)
         user_display = dpg.add_text("Selected Viewer: None") # Assign to global
-        error_display = dpg.add_text("", color=[255, 0, 0]) # Assign to global
+        error_display = dpg.add_text("", color=[255, 0, 0], tag="error_display") # Assign to global
         message_display = dpg.add_text("Last TTS Message: None") # Assign to global for TTS output
 
 
@@ -185,30 +194,41 @@ def initialize_ui():
     create_window()
     
     # Check initial authentication status
-    # Check Twitch auth
     tokens = load_tokens()
-    if tokens and 'access_token' in tokens:
-        # Validate token silently? Or just assume it's good initially.
-        # For simplicity, just update UI if tokens exist
-        config.IS_AUTHENTICATED = True # Assume true if tokens exist, validation happens on API call
-        config.TWITCH_USER_ID = tokens.get('user_id') # Load user ID
-        print(f"Loaded existing Twitch tokens for User ID: {config.TWITCH_USER_ID}")
-        if dpg.does_item_exist(auth_status):
-            dpg.set_value(auth_status, "Twitch Authenticated (Cached)")
-            dpg.configure_item(auth_status, color=[0, 255, 0])
-    
-    # Check Kick auth
     kick_tokens = load_kick_tokens()
-    if kick_tokens and 'access_token' in kick_tokens:
+    
+    # Set authentication status and update UI
+    auth_message = "Not Authenticated"
+    auth_color = [255, 0, 0]  # Red for not authenticated
+    
+    if tokens and 'access_token' in tokens:
+        config.IS_AUTHENTICATED = True
+        config.TWITCH_USER_ID = tokens.get('user_id')
+        print(f"Loaded existing Twitch tokens for User ID: {config.TWITCH_USER_ID}")
+        
+        if kick_tokens and 'access_token' in kick_tokens:
+            # Both Twitch and Kick authenticated
+            auth_message = "Twitch & Kick Authenticated"
+            config.KICK_IS_AUTHENTICATED = True
+            print("Loaded existing Kick tokens")
+        else:
+            # Only Twitch authenticated
+            auth_message = "Twitch Authenticated"
+            config.KICK_IS_AUTHENTICATED = False
+    elif kick_tokens and 'access_token' in kick_tokens:
+        # Only Kick authenticated
+        auth_message = "Kick Authenticated"
         config.KICK_IS_AUTHENTICATED = True
+        config.IS_AUTHENTICATED = False
         print("Loaded existing Kick tokens")
-        if dpg.does_item_exist(auth_status):
-            # If both are authenticated, show that
-            if config.IS_AUTHENTICATED:
-                dpg.set_value(auth_status, "Twitch & Kick Authenticated")
-            else:
-                dpg.set_value(auth_status, "Kick Authenticated")
-            dpg.configure_item(auth_status, color=[0, 255, 0])
+    
+    # Update authentication status in UI
+    if auth_message != "Not Authenticated":
+        auth_color = [0, 255, 0]  # Green for authenticated
+    
+    if dpg.does_item_exist(auth_status):
+        dpg.set_value(auth_status, auth_message)
+        dpg.configure_item(auth_status, color=auth_color)
     
     # Set up the viewport
     dpg.create_viewport(title='Chattastic V3', width=800, height=600)
