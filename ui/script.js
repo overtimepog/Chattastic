@@ -342,9 +342,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 const flowDirection = event.target.value;
                 console.log(`Sending set overlay layout command: flow=${flowDirection}`);
                 sendMessage({ type: 'control_kick_overlay', data: { action: 'set_layout', flow: flowDirection } });
+
+                // Show/hide random mode settings based on selected flow
+                if (randomModeSettings) {
+                    randomModeSettings.style.display = flowDirection === 'random' ? 'block' : 'none';
+                }
             }
         });
     });
+
+    // Initialize random mode settings visibility
+    if (randomModeSettings) {
+        const randomFlowSelected = document.getElementById('flow-random') && document.getElementById('flow-random').checked;
+        randomModeSettings.style.display = randomFlowSelected ? 'block' : 'none';
+    }
 
     // Show Overlay URL Button
     const showUrlBtn = document.getElementById('show-overlay-url-btn');
@@ -378,6 +389,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const applyStylesBtn = document.getElementById('apply-overlay-styles-btn');
     const resetStylesBtn = document.getElementById('reset-overlay-styles-btn');
 
+    // Random mode settings
+    const randomModeSettings = document.getElementById('random-mode-settings');
+    const randomMessageDuration = document.getElementById('random-message-duration');
+    const randomAnimationDuration = document.getElementById('random-animation-duration');
+    const randomMaxMessages = document.getElementById('random-max-messages');
+
     // Update the opacity value display when the slider changes
     if (bgOpacityInput && bgOpacityValue) {
         bgOpacityInput.addEventListener('input', () => {
@@ -402,7 +419,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Add browser source dimensions
                 width: widthInput ? parseInt(widthInput.value, 10) : 800,
                 height: heightInput ? parseInt(heightInput.value, 10) : 600,
-                bottomMargin: bottomMarginInput ? parseInt(bottomMarginInput.value, 10) : 10
+                bottomMargin: bottomMarginInput ? parseInt(bottomMarginInput.value, 10) : 10,
+                // Add random mode settings
+                randomMessageDuration: randomMessageDuration ? parseInt(randomMessageDuration.value, 10) : 5,
+                randomAnimationDuration: randomAnimationDuration ? parseInt(randomAnimationDuration.value, 10) : 500,
+                randomMaxMessages: randomMaxMessages ? parseInt(randomMaxMessages.value, 10) : 10
             };
 
             console.log('Applying overlay styles:', styles);
@@ -438,6 +459,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (widthInput) widthInput.value = '800';
             if (heightInput) heightInput.value = '600';
             if (bottomMarginInput) bottomMarginInput.value = '10';
+
+            // Reset random mode settings
+            if (randomMessageDuration) randomMessageDuration.value = '5';
+            if (randomAnimationDuration) randomAnimationDuration.value = '500';
+            if (randomMaxMessages) randomMaxMessages.value = '10';
 
             // Send reset command to server
             console.log('Resetting overlay styles to defaults');

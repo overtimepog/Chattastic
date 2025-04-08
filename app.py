@@ -50,8 +50,15 @@ class ConnectionManager:
 globals.manager = ConnectionManager()
 
 @app.get("/", response_class=HTMLResponse)
-async def get_root():
-    # Serve the main HTML file
+async def get_root(code: str = None, state: str = None):
+    # Check if this is a Kick callback (code and state parameters are present)
+    if code and state:
+        logger.info(f"Detected Kick callback at root route with code and state parameters")
+        # Forward to the Kick callback handler
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=f"/api/auth/kick/callback?code={code}&state={state}")
+
+    # If not a callback, serve the main HTML file
     # Assuming index.html is in the 'ui' directory
     try:
         with open("ui/index.html", "r") as f:
@@ -192,7 +199,7 @@ async def handle_ws_message(websocket: WebSocket, message: dict):
                 pass # No extra data needed
             elif action == "set_layout":
                 flow = msg_data.get("flow")
-                if flow in ["upwards", "downwards"]:
+                if flow in ["upwards", "downwards", "random"]:
                     command_data["flow"] = flow
                 else:
                     logger.warning(f"Invalid value for set_layout flow: {flow}")
@@ -253,6 +260,16 @@ async def handle_ws_message(websocket: WebSocket, message: dict):
                 # Bottom margin validation
                 if "bottomMargin" in styles and isinstance(styles["bottomMargin"], (int, float)):
                     valid_styles["bottomMargin"] = max(0, min(200, styles["bottomMargin"]))
+
+                # Random mode settings validation
+                if "randomMessageDuration" in styles and isinstance(styles["randomMessageDuration"], (int, float)):
+                    valid_styles["randomMessageDuration"] = max(1, min(60, styles["randomMessageDuration"]))
+
+                if "randomAnimationDuration" in styles and isinstance(styles["randomAnimationDuration"], (int, float)):
+                    valid_styles["randomAnimationDuration"] = max(100, min(2000, styles["randomAnimationDuration"]))
+
+                if "randomMaxMessages" in styles and isinstance(styles["randomMaxMessages"], (int, float)):
+                    valid_styles["randomMaxMessages"] = max(1, min(50, styles["randomMaxMessages"]))
 
                 # Add validated styles to command data
                 command_data["styles"] = valid_styles
@@ -361,9 +378,14 @@ async def get_kick_overlay():
 async def startup_event():
     logger.info("Application starting up...")
     # Initialize authentication state
-    auth_router.initialize_auth()
-    # Broadcast initial state to any early WS connections (though usually happens on connect)
-    # await auth_router.broadcast_auth_status() # Might be redundant with on-connect send
+    await auth_router.initialize_auth()
+    # Broadcast initial state to any early WS connections
+    # We'll try to broadcast, but it's okay if it fails (no connections yet)
+    try:
+        await auth_router.broadcast_auth_status()
+        logger.info("Broadcast initial authentication status")
+    except Exception as e:
+        logger.warning(f"Could not broadcast initial auth status: {e}")
 
 @app.on_event("shutdown")
 async def shutdown_event():

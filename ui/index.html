@@ -90,6 +90,8 @@
         <label for="flow-upwards">Upwards (New at bottom)</label>
         <input type="radio" id="flow-downwards" name="kick-overlay-flow" value="downwards">
         <label for="flow-downwards">Downwards (New at top)</label>
+        <input type="radio" id="flow-random" name="kick-overlay-flow" value="random">
+        <label for="flow-random">Random Placement</label>
         <br> <!-- Line break for spacing -->
 
         <button id="show-overlay-url-btn">Show Overlay URL</button>
@@ -160,6 +162,23 @@
                     <input type="number" id="overlay-bottom-margin" value="10" min="0" max="200">
                 </div>
                 <p class="help-text">Enter the dimensions of your browser source to prevent messages from being cut off.</p>
+            </div>
+
+            <div class="customization-group" id="random-mode-settings">
+                <h4>Random Mode Settings</h4>
+                <div class="control-row">
+                    <label for="random-message-duration">Message Duration (sec):</label>
+                    <input type="number" id="random-message-duration" value="5" min="1" max="60">
+                </div>
+                <div class="control-row">
+                    <label for="random-animation-duration">Animation Duration (ms):</label>
+                    <input type="number" id="random-animation-duration" value="500" min="100" max="2000" step="100">
+                </div>
+                <div class="control-row">
+                    <label for="random-max-messages">Max Messages:</label>
+                    <input type="number" id="random-max-messages" value="10" min="1" max="50">
+                </div>
+                <p class="help-text">Settings for random placement mode. Messages will appear at random positions and disappear after the specified duration.</p>
             </div>
         </div>
         <button id="apply-overlay-styles-btn">Apply Styles</button>

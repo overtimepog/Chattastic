@@ -334,7 +334,7 @@ async def logout():
 
 # --- Initialization ---
 # Load tokens on startup (can be called from app.py)
-def initialize_auth():
+async def initialize_auth():
     logger.info("Initializing authentication state...")
     twitch_tokens = load_tokens()
     if twitch_tokens:

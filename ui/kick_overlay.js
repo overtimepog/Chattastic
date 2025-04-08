@@ -59,6 +59,9 @@
         };
     }
 
+    // Track random mode messages for cleanup
+    const randomModeMessages = [];
+
     function addChatMessage(sender, messageText, emotes = []) {
         if (!chatContainer) return;
 
@@ -121,11 +124,18 @@
             messageElement.appendChild(document.createTextNode(messageText));
         }
 
-        chatContainer.appendChild(messageElement);
+        // Check if we're in random mode
+        if (chatContainer.classList.contains('flow-random')) {
+            // Position the message randomly
+            addRandomMessage(messageElement);
+        } else {
+            // Normal flow mode
+            chatContainer.appendChild(messageElement);
 
-        // Enforce message limit
-        while (chatContainer.children.length > messageLimit) {
-            chatContainer.removeChild(chatContainer.firstChild);
+            // Enforce message limit
+            while (chatContainer.children.length > messageLimit) {
+                chatContainer.removeChild(chatContainer.firstChild);
+            }
         }
     }
 
@@ -142,7 +152,10 @@
         borderRadius: 4,
         width: 800,
         height: 600,
-        bottomMargin: 10
+        bottomMargin: 10,
+        randomMessageDuration: 5,
+        randomAnimationDuration: 500,
+        randomMaxMessages: 10
     };
 
     // Current styles (initialize with defaults)
@@ -258,19 +271,36 @@
                 break;
             case 'set_layout':
                 if (commandData.flow === 'upwards') {
-                    chatContainer.classList.remove('flow-downwards');
+                    chatContainer.classList.remove('flow-downwards', 'flow-random');
                     chatContainer.classList.add('flow-upwards');
                     console.log('Chat overlay layout set to upwards (new at bottom).');
                     // Apply dimension adjustments for upwards mode
                     adjustContainerForDimensions();
+                    // Clear any random mode messages
+                    clearRandomMessages();
                 } else if (commandData.flow === 'downwards') {
-                    chatContainer.classList.remove('flow-upwards');
+                    chatContainer.classList.remove('flow-upwards', 'flow-random');
                     chatContainer.classList.add('flow-downwards');
                     // Reset any dimension-specific styles when switching to downwards mode
                     chatContainer.style.maxHeight = '';
                     chatContainer.style.overflowY = '';
                     chatContainer.style.width = '100%';
                     console.log('Chat overlay layout set to downwards (new at top).');
+                    // Clear any random mode messages
+                    clearRandomMessages();
+                } else if (commandData.flow === 'random') {
+                    chatContainer.classList.remove('flow-upwards', 'flow-downwards');
+                    chatContainer.classList.add('flow-random');
+                    // Reset container styles for random mode
+                    chatContainer.style.maxHeight = '';
+                    chatContainer.style.overflowY = '';
+                    chatContainer.style.width = '100%';
+                    chatContainer.style.height = '100%';
+                    chatContainer.style.position = 'relative';
+                    console.log('Chat overlay layout set to random placement mode.');
+                    // Clear existing messages when switching to random mode
+                    chatContainer.innerHTML = '';
+                    randomModeMessages.length = 0; // Clear the tracking array
                 } else {
                     console.warn('Invalid flow value received for set_layout:', commandData.flow);
                 }
@@ -289,6 +319,111 @@
             default:
                 console.warn('Unknown overlay command received:', commandData.command);
         }
+    }
+
+    // Function to add a message with random positioning
+    function addRandomMessage(messageElement) {
+        // Get container dimensions
+        const containerWidth = currentStyles.width;
+        const containerHeight = currentStyles.height;
+
+        // Calculate maximum position values (accounting for message size)
+        // We'll estimate message size based on content and styles
+        const estimatedMessageWidth = Math.min(containerWidth * 0.8, 400); // Max 80% of container width or 400px
+        const estimatedMessageHeight = 50; // Rough estimate
+
+        // Calculate random position within container bounds
+        const maxX = containerWidth - estimatedMessageWidth;
+        const maxY = containerHeight - estimatedMessageHeight;
+        const randomX = Math.floor(Math.random() * maxX);
+        const randomY = Math.floor(Math.random() * maxY);
+
+        // Style the message for absolute positioning
+        messageElement.style.position = 'absolute';
+        messageElement.style.left = `${randomX}px`;
+        messageElement.style.top = `${randomY}px`;
+        messageElement.style.maxWidth = `${estimatedMessageWidth}px`;
+        messageElement.style.opacity = '0'; // Start invisible for fade-in
+
+        // Add animation class
+        messageElement.classList.add('random-message');
+
+        // Add to container
+        chatContainer.appendChild(messageElement);
+
+        // Track this message
+        const messageInfo = {
+            element: messageElement,
+            timeoutId: null
+        };
+        randomModeMessages.push(messageInfo);
+
+        // Enforce max messages limit
+        while (randomModeMessages.length > currentStyles.randomMaxMessages) {
+            removeOldestRandomMessage();
+        }
+
+        // Animate in
+        setTimeout(() => {
+            // Fade in
+            messageElement.style.transition = `opacity ${currentStyles.randomAnimationDuration}ms ease-in`;
+            messageElement.style.opacity = '1';
+
+            // Set timeout to remove after duration
+            messageInfo.timeoutId = setTimeout(() => {
+                // Fade out and remove
+                messageElement.style.transition = `opacity ${currentStyles.randomAnimationDuration}ms ease-out`;
+                messageElement.style.opacity = '0';
+
+                // Remove after animation completes
+                setTimeout(() => {
+                    removeRandomMessage(messageInfo);
+                }, currentStyles.randomAnimationDuration);
+
+            }, currentStyles.randomMessageDuration * 1000); // Convert seconds to milliseconds
+        }, 10); // Small delay to ensure transition works
+    }
+
+    // Function to remove a specific random message
+    function removeRandomMessage(messageInfo) {
+        // Remove from DOM if still there
+        if (messageInfo.element && messageInfo.element.parentNode) {
+            messageInfo.element.parentNode.removeChild(messageInfo.element);
+        }
+
+        // Clear any pending timeout
+        if (messageInfo.timeoutId) {
+            clearTimeout(messageInfo.timeoutId);
+        }
+
+        // Remove from tracking array
+        const index = randomModeMessages.indexOf(messageInfo);
+        if (index !== -1) {
+            randomModeMessages.splice(index, 1);
+        }
+    }
+
+    // Function to remove the oldest random message
+    function removeOldestRandomMessage() {
+        if (randomModeMessages.length > 0) {
+            removeRandomMessage(randomModeMessages[0]);
+        }
+    }
+
+    // Function to clear all random messages
+    function clearRandomMessages() {
+        // Clear all timeouts and remove elements
+        randomModeMessages.forEach(messageInfo => {
+            if (messageInfo.timeoutId) {
+                clearTimeout(messageInfo.timeoutId);
+            }
+            if (messageInfo.element && messageInfo.element.parentNode) {
+                messageInfo.element.parentNode.removeChild(messageInfo.element);
+            }
+        });
+
+        // Clear the array
+        randomModeMessages.length = 0;
     }
 
     // Function to adjust container based on dimensions
