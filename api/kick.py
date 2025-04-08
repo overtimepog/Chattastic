@@ -212,6 +212,7 @@ async def get_kick_channel_id(username):
         final_url = temp_page.url
         if final_url != api_url and "challenges.cloudflare.com" in final_url:
              logger.error(f"Cloudflare challenge persisted for {username} at {api_url}. Failed to bypass.")
+             #TODO: Do something more, retry, log, etc.
              return None
 
         # Attempt to get page content
