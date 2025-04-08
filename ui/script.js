@@ -81,6 +81,11 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'selected_viewers_update':
                 updateSelectedViewers(message.data.selected_viewers);
                 break;
+            case 'kick_chat_connected': // Add handler for connection confirmation
+                addChatMessage(`System: Connected to Kick chat for ${escapeHTML(message.data.channel || 'Unknown')}`);
+                // Optionally update a status indicator if needed
+                currentKickChannel.textContent = message.data.channel || 'None'; // Update channel display
+                break;
             case 'error':
                  addChatMessage(`System Error: ${message.data.message}`);
                  console.error("Server Error:", message.data.message);
@@ -113,12 +118,12 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        // Escape username and content to prevent XSS
-        const username = escapeHTML(data.username || 'Unknown');
-        const content = escapeHTML(data.content || '');
-        const channel = escapeHTML(data.channel || 'kick');
+    // Escape username and content to prevent XSS
+    const username = escapeHTML(data.user || 'Unknown'); // Use data.user
+    const content = escapeHTML(data.text || '');       // Use data.text
+    const channel = escapeHTML(data.channel || 'kick');
 
-        return `<p>Kick (${channel}): ${badgesHTML}<strong>${username}</strong>: ${content}</p>`;
+    return `<p>Kick (${channel}): ${badgesHTML}<strong>${username}</strong>: ${content}</p>`;
     }
 
     // Helper function to escape HTML special characters

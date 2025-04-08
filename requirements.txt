@@ -18,6 +18,8 @@ fastapi
 uvicorn[standard]
 python-multipart # Often needed for form data with FastAPI
 websockets # Explicitly add for FastAPI WebSocket support
+playwright
+playwright-stealth # Added for stealth mode in Playwright
 
 # Optional: Keep DearPyGui for backward compatibility if needed
 # dearpygui
