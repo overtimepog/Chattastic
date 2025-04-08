@@ -8,6 +8,7 @@ from queue import Queue
 import config
 import globals # Import globals to access kick_emotes
 import logging
+from bs4 import BeautifulSoup, Tag # Import BeautifulSoup
 
 # Set up logging
 # logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s') # Example basic config
@@ -333,6 +334,100 @@ async def get_latest_subscriber(channel_id):
             except Exception as e_pw: logger.debug(f"Minor error stopping temp playwright: {e_pw}")
 # --- End Playwright-based API Calls ---
 
+def _parse_kick_message_html(html_content: str):
+    """
+    Parses the HTML content of a Kick chat message using BeautifulSoup
+    to extract sender, message text, and emote details.
+
+    Args:
+        html_content: The raw outerHTML string of the message element.
+
+    Returns:
+        A dictionary containing:
+        - 'sender': The username of the message sender.
+        - 'message_text': The textual content of the message, with emotes replaced by placeholders like [emote:name].
+        - 'emotes': A list of dictionaries, each containing 'name' and 'url' for an emote found in the message.
+        - 'timestamp': The timestamp string (e.g., '12:31 AM') or None if not found.
+        - 'is_reply': Boolean indicating if it's a reply message.
+    """
+    soup = BeautifulSoup(html_content, 'html.parser')
+    sender = "System"
+    message_parts = []
+    emotes = []
+    timestamp = None
+    is_reply = False
+
+    # Determine if it's a reply based on the presence of the reply header div
+    reply_header = soup.find('div', class_='text-white/40')
+    if reply_header:
+        is_reply = True
+        # In replies, the main content div is usually the direct child after the header
+        main_content_div = reply_header.find_next_sibling('div')
+        if not main_content_div:
+             main_content_div = soup # Fallback if structure is unexpected
+    else:
+        # In standard messages, the main content div is often the root or a direct child
+        main_content_div = soup
+
+    # --- Extract Timestamp ---
+    # Replies and standard messages might have slightly different structures for timestamp
+    ts_el = main_content_div.find('span', class_='text-neutral')
+    if ts_el:
+        timestamp = ts_el.get_text(strip=True)
+
+    # --- Extract Sender ---
+    # Look for the button containing the username
+    # Replies: Often nested deeper
+    # Standard: More direct
+    user_button = main_content_div.find('button', class_='inline font-bold')
+    if user_button:
+        sender = user_button.get('title', user_button.get_text(strip=True))
+    elif main_content_div.find('button', title='BotRix'): # Specific BotRix case
+         sender = "BotRix"
+
+    # --- Extract Message Content and Emotes ---
+    # Find the span containing the actual message parts (text and emotes)
+    message_span = main_content_div.find('span', class_='font-normal') # Simplified selector, adjust if needed
+    if message_span:
+        for element in message_span.children:
+            if isinstance(element, Tag):
+                # Check if it's an emote span (contains an img)
+                img_tag = element.find('img', alt=True, src=True)
+                if img_tag:
+                    emote_name = img_tag.get('alt')
+                    emote_url = img_tag.get('src')
+                    if emote_name:
+                        message_parts.append(f"[emote:{emote_name}]") # Placeholder in text
+                        emotes.append({"name": emote_name, "url": emote_url})
+                else:
+                    # Append other tag text content if necessary, though usually emotes are the main tags
+                    message_parts.append(element.get_text())
+            else:
+                # It's a NavigableString (plain text)
+                message_parts.append(str(element)) # Convert NavigableString to string
+
+    message_text = "".join(message_parts).strip()
+
+    # Fallback if parsing failed to get sender/message but we have some text
+    if sender == "System" and not message_text:
+         full_text = soup.get_text(separator=' ', strip=True)
+         # Basic attempt to split user: message
+         if ':' in full_text:
+              parts = full_text.split(':', 1)
+              potential_user = parts[0].split(']')[-1].strip() # Handle timestamps like [12:31 AM] User
+              if potential_user: sender = potential_user
+              message_text = parts[1].strip()
+         else:
+              message_text = full_text # Use the whole text if no colon
+
+    return {
+        "sender": sender,
+        "message_text": message_text,
+        "emotes": emotes,
+        "timestamp": timestamp,
+        "is_reply": is_reply,
+    }
+
 
 def parse_kick_timestamp(time_str):
     """Placeholder for parsing Kick's chat timestamp (e.g., '08:22 PM') if needed."""
@@ -406,82 +501,38 @@ async def poll_messages(channel_name):
                     new_messages_found_in_batch = True
                     max_index_in_batch = max(max_index_in_batch, index)
 
-                    timestamp_text = "N/A"
-                    username_text = "System"
-                    message_text = ""
-                    is_reply = False
-
                     try:
-                        # Check for reply structure
-                        reply_header = await element.query_selector(":scope > div.text-white\\/40") # Need to escape slash for CSS
-                        if reply_header:
-                            is_reply = True
-                            # logger.debug(f"Parsing reply structure for index {index}")
-                            # Timestamp in replies might be nested differently or absent, adjust if needed
-                            ts_el = await element.query_selector(":scope > div > span.text-neutral.pr-1.font-semibold")
-                            if ts_el: timestamp_text = parse_kick_timestamp(await ts_el.inner_text())
+                        # Get the raw HTML of the message element
+                        outer_html = await element.evaluate("el => el.outerHTML")
 
-                            # User in replies is often inside the main div -> inline-flex -> button
-                            usr_el = await element.query_selector(":scope > div > div.inline-flex button.inline.font-bold")
-                            if usr_el: username_text = (await usr_el.get_attribute("title") or await usr_el.inner_text()).strip()
+                        # Parse the HTML using BeautifulSoup
+                        parsed_data = _parse_kick_message_html(outer_html)
 
-                            # Message content in replies is often the last direct span child of the main div
-                            msg_content_el = await element.query_selector(":scope > div > span.font-normal.leading-\\[1\\.55\\]")
-                            if msg_content_el: message_text = await msg_content_el.inner_text()
-
-                        else: # Standard message structure
-                            # Timestamp
-                            ts_el = await element.query_selector(":scope > span.text-neutral.pr-1.font-semibold")
-                            if ts_el: timestamp_text = parse_kick_timestamp(await ts_el.inner_text())
-
-                            # Username
-                            usr_el = await element.query_selector(":scope > div.inline-flex button.inline.font-bold")
-                            if usr_el: username_text = (await usr_el.get_attribute("title") or await usr_el.inner_text()).strip()
-                            elif await element.query_selector(":scope > div.inline-flex button[title='BotRix']"): # Specific case for BotRix
-                                 username_text = "BotRix"
-
-
-                            # Message Content
-                            msg_content_el = await element.query_selector(":scope > span.font-normal.leading-\\[1\\.55\\]")
-                            if msg_content_el:
-                                message_text = await msg_content_el.inner_text()
-                                # Attempt to extract text from emotes' alt attributes if inner_text is empty/just whitespace
-                                if not message_text.strip():
-                                     emote_texts = []
-                                     emote_imgs = await msg_content_el.query_selector_all("img[alt]")
-                                     for img in emote_imgs:
-                                          alt_text = await img.get_attribute("alt")
-                                          if alt_text: emote_texts.append(f":{alt_text}:") # Format like :emoteName:
-                                     message_text = " ".join(emote_texts)
-
-
-                        # Final check for system-like messages we couldn't parse
-                        if username_text == "System" and not message_text:
-                             full_msg_text = await element.inner_text()
-                             if ":" in full_msg_text:
-                                  parts = full_msg_text.split(':', 1)
-                                  potential_user_part = parts[0].split(']')[-1].strip()
-                                  if potential_user_part: username_text = potential_user_part
-                                  message_text = parts[1].strip()
-                             else:
-                                  message_text = " ".join(full_msg_text.split()) # Use cleaned full text
-                             logger.debug(f"Using fallback parsing for index {index}, User: {username_text}, Msg: {message_text[:50]}...")
+                        # Extract data from the parsed result
+                        timestamp_text = parsed_data.get("timestamp", "N/A")
+                        username_text = parsed_data.get("sender", "System")
+                        message_text = parsed_data.get("message_text", "")
+                        emotes_list = parsed_data.get("emotes", [])
+                        is_reply = parsed_data.get("is_reply", False)
 
                         # --- Queue the message ---
-                        if username_text and (message_text or username_text != "System"): # Ensure we have something meaningful
+                        # Ensure we have a sender and either text or emotes
+                        if username_text and (message_text or emotes_list or username_text != "System"):
                             msg = {
                                 "data_index": index,
                                 "timestamp": timestamp_text,
                                 "sender": username_text,
-                                "content": message_text.strip(),
+                                "content": message_text, # Already stripped in parser
+                                "emotes": emotes_list, # Add emotes data
                                 "is_reply": is_reply,
                             }
                             message_queue.put(msg)
+                            # logger.debug(f"Queued message index {index}: User='{username_text}', Text='{message_text[:30]}...', Emotes={len(emotes_list)}")
                         else:
-                             logger.debug(f"Skipping queuing message index {index} due to missing sender/content after parsing.")
+                             logger.debug(f"Skipping queuing message index {index} due to missing sender/content after BS4 parsing.")
 
                     except Exception as parse_err:
-                        logger.error(f"Error parsing message details at index {index}: {str(parse_err)}")
+                        logger.error(f"Error processing message element at index {index}: {str(parse_err)}")
                         try:
                             outer_html = await element.evaluate("el => el.outerHTML")
                             logger.debug(f"Problematic element HTML for index {index}: {outer_html[:500]}...")
@@ -523,9 +574,11 @@ async def stream_messages(channel_name):
                 sender = msg.get("sender", "Unknown")
                 content = msg.get("content", "")
                 timestamp = msg.get("timestamp", "N/A")
+                emotes = msg.get("emotes", []) # Get the emotes list
 
-                if not sender or (sender == "System" and not content):
-                    logger.debug(f"Skipping streaming message index {msg.get('data_index')} due to missing sender/content.")
+                # Skip if message is essentially empty (no sender or just system message without content/emotes)
+                if not sender or (sender == "System" and not content and not emotes):
+                    logger.debug(f"Skipping streaming message index {msg.get('data_index')} due to missing sender/content/emotes.")
                     message_queue.task_done()
                     continue
 
@@ -534,11 +587,12 @@ async def stream_messages(channel_name):
                     "data": {
                         "channel": channel_name,
                         "user": sender,
-                        "text": content,
-                        "timestamp": timestamp
+                        "text": content, # Text with placeholders like [emote:name]
+                        "timestamp": timestamp,
+                        "emotes": emotes # List of {"name": "...", "url": "..."}
                     }
                 }
-                # Broadcast for main UI
+                # Broadcast for main UI (now includes emotes)
                 await globals.manager.broadcast(json.dumps(message_data))
 
                 # Add to config history (ensure thread safety if needed)

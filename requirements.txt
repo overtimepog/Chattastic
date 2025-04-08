@@ -24,3 +24,6 @@ playwright-stealth # Added for stealth mode in Playwright
 # Optional: Keep DearPyGui for backward compatibility if needed
 # dearpygui
 # Removed: flask, flask_socketio
+
+# HTML Parsing
+beautifulsoup4
