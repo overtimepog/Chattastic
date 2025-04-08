@@ -98,9 +98,12 @@ async def broadcast_auth_status():
                 "twitch_authenticated": config.IS_AUTHENTICATED,
                 "kick_authenticated": config.KICK_IS_AUTHENTICATED,
                 "twitch_channel": config.selected_channel, # Or get dynamically if needed
-                "kick_channel": config.kick_channel_name
+                "kick_channel": config.kick_channel_name,
+                "kick_connected": config.kick_chat_connected, # Add kick connection status
+                "raffle_entries_count": len(config.entered_users) # Add raffle entries count
             }
         }
+        logger.info(f"Broadcasting auth status: Twitch={config.IS_AUTHENTICATED}, Kick={config.KICK_IS_AUTHENTICATED}")
         await globals.manager.broadcast(json.dumps(status_message))
     else:
         logger.warning("WebSocket manager not available for broadcasting auth status.")
@@ -175,7 +178,8 @@ async def twitch_callback(request: Request, code: str = None, error: str = None,
                 config.IS_AUTHENTICATED = True
                 logger.info("Twitch authentication successful.")
                 await broadcast_auth_status()
-                return HTMLResponse(content="<html><body><h1>Twitch Authentication Successful!</h1><p>You can close this window now.</p><script>window.close();</script></body></html>")
+                # Redirect to the root URL instead of showing a success page
+                return RedirectResponse(url="/", status_code=303)
             else:
                 logger.error("Twitch authentication failed: Could not retrieve User ID or User Name after getting tokens.")
                 config.IS_AUTHENTICATED = False
@@ -284,7 +288,8 @@ async def kick_callback(request: Request, code: str = None, state: str = None, e
             # config.KICK_USER_ID = get_kick_user_id(access_token) # Placeholder
             logger.info("Kick authentication successful.")
             await broadcast_auth_status()
-            return HTMLResponse(content="<html><body><h1>Kick Authentication Successful!</h1><p>You can close this window now.</p><script>window.close();</script></body></html>")
+            # Redirect to the root URL instead of showing a success page
+            return RedirectResponse(url="/", status_code=303)
         else:
             logger.error("Kick authentication failed: Missing access_token in response.")
             config.KICK_IS_AUTHENTICATED = False

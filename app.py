@@ -102,9 +102,11 @@ async def handle_ws_message(websocket: WebSocket, message: dict):
                     "twitch_channel": config.selected_channel,
                     "kick_channel": config.kick_channel_name,
                     "kick_connected": config.kick_chat_connected,
+                    "raffle_entries_count": len(config.entered_users),
                     # Add twitch connected status if implemented
                 }
             }
+            logger.info(f"Sending initial status: Twitch={config.IS_AUTHENTICATED}, Kick={config.KICK_IS_AUTHENTICATED}")
             await globals.manager.send_personal_message(json.dumps(initial_status), websocket)
 
         elif msg_type == "connect_twitch_chat":
@@ -319,7 +321,12 @@ async def websocket_endpoint(websocket: WebSocket):
                 # TODO: Add twitch_connected status if implemented
             }
         }
-        await globals.manager.send_personal_message(json.dumps(initial_status), websocket)
+        logger.info(f"Sending initial status to new client: Twitch={config.IS_AUTHENTICATED}, Kick={config.KICK_IS_AUTHENTICATED}")
+        try:
+            await websocket.send_text(json.dumps(initial_status))
+            logger.info("Initial status sent successfully")
+        except Exception as e:
+            logger.error(f"Error sending initial status: {e}")
 
         while True:
             # Keep connection open and listen for messages from the client
