@@ -160,7 +160,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Split the message by emote placeholders
             // Format is [emote:name|id] or older format [emote:name]
-            const parts = messageText.split(/\[emote:([^\]|]+)(?:\|([^\]]+))?\]/);
+            // Using a regex that captures the emote name but discards the ID part
+            const parts = messageText.split(/\[emote:([^\]|]+)(?:\|[^\]]+)?\]/);
             console.log('Split parts:', parts); // Debug log
 
             for (let i = 0; i < parts.length; i++) {
@@ -170,16 +171,14 @@ document.addEventListener('DOMContentLoaded', () => {
                         contentHTML += escapeHTML(parts[i]);
                     }
                 } else {
-                    // Odd indices are emote names, followed by optional emote IDs
+                    // Odd indices are emote names (ID part is discarded by the regex)
                     const emoteName = parts[i];
-                    const emoteId = parts[i+1]; // This will be undefined for old format [emote:name]
-                    i += emoteId ? 1 : 0; // Skip the next part if we found an ID
 
                     const emoteUrl = emoteMap[emoteName];
-                    console.log(`Processing emote: ${emoteName}, ID: ${emoteId || 'none'}, URL: ${emoteUrl}`); // Debug log
+                    console.log(`Processing emote: ${emoteName}, URL: ${emoteUrl}`); // Debug log
 
                     if (emoteUrl) {
-                        // Create an image element for the emote
+                        // Create an image element for the emote - no brackets or IDs
                         contentHTML += `<img src="${emoteUrl}" alt="${escapeHTML(emoteName)}" title="${escapeHTML(emoteName)}" class="chat-emote" style="height: 1.2em; vertical-align: middle;">`;
                     } else {
                         // Fallback if emote URL not found
@@ -360,6 +359,100 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
         console.error('Show Overlay URL button or display element not found');
     }
+
+    // --- Overlay Appearance Customization ---
+    // Get all the customization controls
+    const textColorInput = document.getElementById('overlay-text-color');
+    const usernameColorInput = document.getElementById('overlay-username-color');
+    const fontSizeInput = document.getElementById('overlay-font-size');
+    const textShadowSelect = document.getElementById('overlay-text-shadow');
+    const bgColorInput = document.getElementById('overlay-bg-color');
+    const bgOpacityInput = document.getElementById('overlay-bg-opacity');
+    const bgOpacityValue = document.getElementById('overlay-bg-opacity-value');
+    const paddingInput = document.getElementById('overlay-padding');
+    const gapInput = document.getElementById('overlay-gap');
+    const borderRadiusInput = document.getElementById('overlay-border-radius');
+    const widthInput = document.getElementById('overlay-width');
+    const heightInput = document.getElementById('overlay-height');
+    const bottomMarginInput = document.getElementById('overlay-bottom-margin');
+    const applyStylesBtn = document.getElementById('apply-overlay-styles-btn');
+    const resetStylesBtn = document.getElementById('reset-overlay-styles-btn');
+
+    // Update the opacity value display when the slider changes
+    if (bgOpacityInput && bgOpacityValue) {
+        bgOpacityInput.addEventListener('input', () => {
+            bgOpacityValue.textContent = bgOpacityInput.value;
+        });
+    }
+
+    // Apply styles button
+    if (applyStylesBtn) {
+        applyStylesBtn.addEventListener('click', () => {
+            // Collect all the style values
+            const styles = {
+                textColor: textColorInput ? textColorInput.value : '#ffffff',
+                usernameColor: usernameColorInput ? usernameColorInput.value : '#a0a0ff',
+                fontSize: fontSizeInput ? parseInt(fontSizeInput.value, 10) : 16,
+                textShadow: textShadowSelect ? textShadowSelect.value : 'on',
+                bgColor: bgColorInput ? bgColorInput.value : '#000000',
+                bgOpacity: bgOpacityInput ? parseFloat(bgOpacityInput.value) : 0.5,
+                padding: paddingInput ? parseInt(paddingInput.value, 10) : 5,
+                gap: gapInput ? parseInt(gapInput.value, 10) : 5,
+                borderRadius: borderRadiusInput ? parseInt(borderRadiusInput.value, 10) : 4,
+                // Add browser source dimensions
+                width: widthInput ? parseInt(widthInput.value, 10) : 800,
+                height: heightInput ? parseInt(heightInput.value, 10) : 600,
+                bottomMargin: bottomMarginInput ? parseInt(bottomMarginInput.value, 10) : 10
+            };
+
+            console.log('Applying overlay styles:', styles);
+            sendMessage({
+                type: 'control_kick_overlay',
+                data: {
+                    action: 'set_styles',
+                    styles: styles
+                }
+            });
+        });
+    } else {
+        console.error('Apply Overlay Styles button not found');
+    }
+
+    // Reset styles button
+    if (resetStylesBtn) {
+        resetStylesBtn.addEventListener('click', () => {
+            // Reset all inputs to their default values
+            if (textColorInput) textColorInput.value = '#ffffff';
+            if (usernameColorInput) usernameColorInput.value = '#a0a0ff';
+            if (fontSizeInput) fontSizeInput.value = '16';
+            if (textShadowSelect) textShadowSelect.value = 'on';
+            if (bgColorInput) bgColorInput.value = '#000000';
+            if (bgOpacityInput) {
+                bgOpacityInput.value = '0.5';
+                if (bgOpacityValue) bgOpacityValue.textContent = '0.5';
+            }
+            if (paddingInput) paddingInput.value = '5';
+            if (gapInput) gapInput.value = '5';
+            if (borderRadiusInput) borderRadiusInput.value = '4';
+            // Reset browser source dimensions
+            if (widthInput) widthInput.value = '800';
+            if (heightInput) heightInput.value = '600';
+            if (bottomMarginInput) bottomMarginInput.value = '10';
+
+            // Send reset command to server
+            console.log('Resetting overlay styles to defaults');
+            sendMessage({
+                type: 'control_kick_overlay',
+                data: {
+                    action: 'reset_styles'
+                }
+            });
+        });
+    } else {
+        console.error('Reset Overlay Styles button not found');
+    }
+    // --- End Overlay Appearance Customization ---
+
     // --- End Kick Overlay Control Listeners ---
 
     // Initial connection

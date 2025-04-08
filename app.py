@@ -197,6 +197,69 @@ async def handle_ws_message(websocket: WebSocket, message: dict):
                 else:
                     logger.warning(f"Invalid value for set_layout flow: {flow}")
                     return # Don't broadcast invalid command
+            elif action == "set_styles":
+                styles = msg_data.get("styles")
+                if not isinstance(styles, dict):
+                    logger.warning(f"Invalid styles data for set_styles: {styles}")
+                    return # Don't broadcast invalid command
+
+                # Validate and sanitize style values
+                valid_styles = {}
+
+                # Text color validation
+                if "textColor" in styles and isinstance(styles["textColor"], str):
+                    valid_styles["textColor"] = styles["textColor"]
+
+                # Username color validation
+                if "usernameColor" in styles and isinstance(styles["usernameColor"], str):
+                    valid_styles["usernameColor"] = styles["usernameColor"]
+
+                # Font size validation
+                if "fontSize" in styles and isinstance(styles["fontSize"], (int, float)):
+                    valid_styles["fontSize"] = max(10, min(32, styles["fontSize"]))
+
+                # Text shadow validation
+                if "textShadow" in styles and styles["textShadow"] in ["on", "off"]:
+                    valid_styles["textShadow"] = styles["textShadow"]
+
+                # Background color validation
+                if "bgColor" in styles and isinstance(styles["bgColor"], str):
+                    valid_styles["bgColor"] = styles["bgColor"]
+
+                # Background opacity validation
+                if "bgOpacity" in styles and isinstance(styles["bgOpacity"], (int, float)):
+                    valid_styles["bgOpacity"] = max(0, min(1, styles["bgOpacity"]))
+
+                # Padding validation
+                if "padding" in styles and isinstance(styles["padding"], (int, float)):
+                    valid_styles["padding"] = max(0, min(20, styles["padding"]))
+
+                # Gap validation
+                if "gap" in styles and isinstance(styles["gap"], (int, float)):
+                    valid_styles["gap"] = max(0, min(20, styles["gap"]))
+
+                # Border radius validation
+                if "borderRadius" in styles and isinstance(styles["borderRadius"], (int, float)):
+                    valid_styles["borderRadius"] = max(0, min(20, styles["borderRadius"]))
+
+                # Browser source width validation
+                if "width" in styles and isinstance(styles["width"], (int, float)):
+                    valid_styles["width"] = max(100, min(3000, styles["width"]))
+
+                # Browser source height validation
+                if "height" in styles and isinstance(styles["height"], (int, float)):
+                    valid_styles["height"] = max(100, min(3000, styles["height"]))
+
+                # Bottom margin validation
+                if "bottomMargin" in styles and isinstance(styles["bottomMargin"], (int, float)):
+                    valid_styles["bottomMargin"] = max(0, min(200, styles["bottomMargin"]))
+
+                # Add validated styles to command data
+                command_data["styles"] = valid_styles
+                logger.info(f"Applying overlay styles: {valid_styles}")
+            elif action == "reset_styles":
+                # No extra data needed for reset
+                pass
             else:
                 logger.warning(f"Unknown or invalid Kick overlay control action: {action}")
                 # Optionally send an error back to the sender if needed

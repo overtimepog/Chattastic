@@ -85,7 +85,8 @@
 
             // Split the message by emote placeholders
             // Format is [emote:name|id] or older format [emote:name]
-            const parts = messageText.split(/\[emote:([^\]|]+)(?:\|([^\]]+))?\]/);
+            // Using a regex that captures the emote name but discards the ID part
+            const parts = messageText.split(/\[emote:([^\]|]+)(?:\|[^\]]+)?\]/);
 
             for (let i = 0; i < parts.length; i++) {
                 if (i % 2 === 0) {
@@ -94,15 +95,13 @@
                         messageElement.appendChild(document.createTextNode(parts[i]));
                     }
                 } else {
-                    // Odd indices are emote names, followed by optional emote IDs
+                    // Odd indices are emote names (ID part is discarded by the regex)
                     const emoteName = parts[i];
-                    const emoteId = parts[i+1]; // This will be undefined for old format [emote:name]
-                    i += emoteId ? 1 : 0; // Skip the next part if we found an ID
 
                     const emoteUrl = emoteMap[emoteName];
 
                     if (emoteUrl) {
-                        // Create an image element for the emote
+                        // Create an image element for the emote - no brackets or IDs
                         const img = document.createElement('img');
                         img.src = emoteUrl;
                         img.alt = emoteName;
@@ -130,6 +129,108 @@
         }
     }
 
+    // Default style values
+    const defaultStyles = {
+        textColor: '#ffffff',
+        usernameColor: '#a0a0ff',
+        fontSize: 16,
+        textShadow: 'on',
+        bgColor: '#000000',
+        bgOpacity: 0.5,
+        padding: 5,
+        gap: 5,
+        borderRadius: 4,
+        width: 800,
+        height: 600,
+        bottomMargin: 10
+    };
+
+    // Current styles (initialize with defaults)
+    let currentStyles = {...defaultStyles};
+
+    // Apply styles to the chat container and messages
+    function applyStyles(styles) {
+        // Update document root with CSS variables
+        const root = document.documentElement;
+
+        // Apply text color
+        if (styles.textColor) {
+            root.style.setProperty('--chat-text-color', styles.textColor);
+        }
+
+        // Apply username color
+        if (styles.usernameColor) {
+            root.style.setProperty('--chat-username-color', styles.usernameColor);
+        }
+
+        // Apply font size
+        if (styles.fontSize) {
+            root.style.setProperty('--chat-font-size', `${styles.fontSize}px`);
+        }
+
+        // Apply text shadow
+        if (styles.textShadow) {
+            root.style.setProperty('--chat-text-shadow', styles.textShadow === 'on' ?
+                '1px 1px 2px rgba(0, 0, 0, 0.8)' : 'none');
+        }
+
+        // Apply background color and opacity
+        if (styles.bgColor && styles.bgOpacity !== undefined) {
+            // Convert hex color to rgba
+            const hexToRgb = (hex) => {
+                const shorthandRegex = /^#?([a-f\d])([a-f\d])([a-f\d])$/i;
+                const fullHex = hex.replace(shorthandRegex, (m, r, g, b) => r + r + g + g + b + b);
+                const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(fullHex);
+                return result ? {
+                    r: parseInt(result[1], 16),
+                    g: parseInt(result[2], 16),
+                    b: parseInt(result[3], 16)
+                } : {r: 0, g: 0, b: 0};
+            };
+
+            const rgb = hexToRgb(styles.bgColor);
+            const rgba = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${styles.bgOpacity})`;
+            root.style.setProperty('--chat-bg-color', rgba);
+        }
+
+        // Apply padding
+        if (styles.padding !== undefined) {
+            root.style.setProperty('--chat-padding', `${styles.padding}px`);
+        }
+
+        // Apply gap between messages
+        if (styles.gap !== undefined) {
+            root.style.setProperty('--chat-gap', `${styles.gap}px`);
+        }
+
+        // Apply border radius
+        if (styles.borderRadius !== undefined) {
+            root.style.setProperty('--chat-border-radius', `${styles.borderRadius}px`);
+        }
+
+        // Apply browser source dimensions
+        if (styles.width !== undefined) {
+            root.style.setProperty('--chat-width', `${styles.width}px`);
+        }
+
+        if (styles.height !== undefined) {
+            root.style.setProperty('--chat-height', `${styles.height}px`);
+        }
+
+        if (styles.bottomMargin !== undefined) {
+            root.style.setProperty('--chat-bottom-margin', `${styles.bottomMargin}px`);
+            // Also update body padding-bottom to prevent cut-off
+            document.body.style.paddingBottom = `${styles.bottomMargin}px`;
+        }
+
+        // Update current styles
+        currentStyles = {...currentStyles, ...styles};
+        console.log('Styles applied:', currentStyles);
+
+        // Apply dimensions to container if in upwards mode
+        adjustContainerForDimensions();
+    }
+
     function handleCommand(commandData) {
         console.log('Handling command:', commandData);
         if (!chatContainer) return; // Ensure container exists
@@ -155,24 +256,59 @@
                     console.warn('Invalid limit value received:', commandData.limit);
                 }
                 break;
-            // Removed duplicated default case here
             case 'set_layout':
                 if (commandData.flow === 'upwards') {
                     chatContainer.classList.remove('flow-downwards');
                     chatContainer.classList.add('flow-upwards');
                     console.log('Chat overlay layout set to upwards (new at bottom).');
+                    // Apply dimension adjustments for upwards mode
+                    adjustContainerForDimensions();
                 } else if (commandData.flow === 'downwards') {
                     chatContainer.classList.remove('flow-upwards');
                     chatContainer.classList.add('flow-downwards');
+                    // Reset any dimension-specific styles when switching to downwards mode
+                    chatContainer.style.maxHeight = '';
+                    chatContainer.style.overflowY = '';
+                    chatContainer.style.width = '100%';
                     console.log('Chat overlay layout set to downwards (new at top).');
                 } else {
                     console.warn('Invalid flow value received for set_layout:', commandData.flow);
                 }
                 break;
+            case 'set_styles':
+                if (commandData.styles && typeof commandData.styles === 'object') {
+                    applyStyles(commandData.styles);
+                } else {
+                    console.warn('Invalid styles data received:', commandData.styles);
+                }
+                break;
+            case 'reset_styles':
+                applyStyles(defaultStyles);
+                console.log('Styles reset to defaults');
+                break;
             default:
                 console.warn('Unknown overlay command received:', commandData.command);
         }
     }
+
+    // Function to adjust container based on dimensions
+    function adjustContainerForDimensions() {
+        // Only apply special handling for upwards flow mode
+        if (chatContainer && chatContainer.classList.contains('flow-upwards')) {
+            // Set max-height based on browser source height minus bottom margin
+            const maxHeight = currentStyles.height - currentStyles.bottomMargin - 20; // 20px for additional padding
+            chatContainer.style.maxHeight = `${maxHeight}px`;
+            chatContainer.style.overflowY = 'hidden'; // Hide overflow
+
+            // Ensure container width matches browser source width
+            chatContainer.style.width = `${currentStyles.width - 20}px`; // 20px for padding
+
+            console.log(`Adjusted container dimensions: maxHeight=${maxHeight}px, width=${currentStyles.width - 20}px`);
+        }
+    }
+
+    // Apply default styles on load
+    applyStyles(defaultStyles);
 
     // Initial connection attempt
     connectWebSocket();

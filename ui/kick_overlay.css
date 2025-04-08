@@ -1,22 +1,38 @@
+/* Define CSS variables with default values */
+:root {
+    --chat-text-color: #ffffff;
+    --chat-username-color: #a0a0ff;
+    --chat-font-size: 16px;
+    --chat-text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+    --chat-bg-color: rgba(0, 0, 0, 0.5);
+    --chat-padding: 5px;
+    --chat-gap: 5px;
+    --chat-border-radius: 4px;
+    --chat-width: 800px;
+    --chat-height: 600px;
+    --chat-bottom-margin: 10px;
+}
+
 /* Basic reset and transparency */
 body {
     background-color: transparent;
     margin: 0;
-    padding: 10px; /* Add some padding around the edges */
+    padding: 10px 10px var(--chat-bottom-margin) 10px; /* Add padding with bottom margin variable */
     font-family: Arial, sans-serif;
-    color: #ffffff; /* White text */
+    color: var(--chat-text-color); /* Use variable for text color */
     overflow: hidden; /* Hide scrollbars */
     height: 100vh; /* Ensure body takes full height */
     display: flex;
     flex-direction: column;
     justify-content: flex-end; /* Align messages to the bottom */
+    box-sizing: border-box; /* Include padding in height calculation */
 }
 
 #chat-container {
     width: 100%;
     display: flex;
     flex-direction: column;
-    gap: 5px; /* Space between messages */
+    gap: var(--chat-gap); /* Use variable for gap between messages */
     /* Default flow: upwards (new messages at bottom) */
     flex-direction: column;
     justify-content: flex-end;
@@ -34,23 +50,20 @@ body {
     justify-content: flex-end;
 }
 
-
 .chat-message {
-    background-color: rgba(0, 0, 0, 0.5); /* Semi-transparent black background */
-    padding: 5px 10px;
-    border-radius: 4px;
-    font-size: 16px; /* Adjust as needed */
-    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8); /* Text shadow for readability */
+    background-color: var(--chat-bg-color); /* Use variable for background */
+    padding: var(--chat-padding) 10px; /* Use variable for vertical padding */
+    border-radius: var(--chat-border-radius); /* Use variable for border radius */
+    font-size: var(--chat-font-size); /* Use variable for font size */
+    text-shadow: var(--chat-text-shadow); /* Use variable for text shadow */
     word-wrap: break-word; /* Wrap long words */
 }
 
 .chat-message strong {
     font-weight: bold;
-    color: #a0a0ff; /* Light blue for sender name, adjust as needed */
+    color: var(--chat-username-color); /* Use variable for username color */
     margin-right: 5px;
 }
-
-/* Optional: Add fade-in/out animations later if desired */
 
 /* Styling for emote images */
 .chat-emote {
