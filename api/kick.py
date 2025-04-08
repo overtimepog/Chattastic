@@ -4,10 +4,10 @@ import json
 import asyncio
 import os
 from queue import Queue
-import config # Assuming you have config.py with KICK_TOKEN_FILE
-import globals # Assuming you have globals.py with manager
+# Assuming config.py and globals.py exist and are configured
+import config
+import globals
 import logging
-import httpx # Using httpx for API calls now
 
 # Set up logging
 # logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s') # Example basic config
@@ -18,10 +18,10 @@ from playwright.async_api import async_playwright, TimeoutError as PlaywrightTim
 from playwright_stealth import stealth_async
 
 # --- Globals ---
-# Playwright instances for the persistent browser used for scraping
-playwright_instance = None
-browser_instance = None
-driver_page = None # Renamed from 'driver' to avoid confusion with selenium terminology
+# Persistent Playwright instances for scraping the live chat DOM
+playwright_instance_persistent = None
+browser_instance_persistent = None
+driver_page = None # Page object for ongoing chat polling
 
 # Thread-safe queue and polling control
 message_queue = Queue()
@@ -33,99 +33,180 @@ streaming_task = None
 
 def load_kick_tokens():
     """Load Kick authentication tokens from file."""
-    if os.path.exists(config.KICK_TOKEN_FILE):
+    token_path = getattr(config, 'KICK_TOKEN_FILE', 'kick_tokens.json') # Use default if not in config
+    if os.path.exists(token_path):
         try:
-            with open(config.KICK_TOKEN_FILE, 'r') as file:
+            with open(token_path, 'r') as file:
                 return json.load(file)
         except json.JSONDecodeError:
-            logger.error(f"Error decoding JSON from {config.KICK_TOKEN_FILE}. File might be corrupted.")
+            logger.error(f"Error decoding JSON from {token_path}. File might be corrupted.")
             return None
-    logger.warning(f"Token file not found at {config.KICK_TOKEN_FILE}")
+    logger.warning(f"Token file not found at {token_path}")
     return None
 
-# --- API Calls using HTTPX (More Efficient) ---
-async def get_kick_channel_id_api(username):
-    """Get Kick channel ID using httpx for efficiency."""
+# --- Playwright-based API Calls (Necessary due to Cloudflare) ---
+
+async def get_kick_channel_id(username):
+    """Get Kick channel ID using a TEMPORARY Playwright instance with stealth to handle Cloudflare."""
+    logger.info(f"Attempting to get channel ID for '{username}' using Playwright + Stealth...")
+    temp_playwright = None
+    temp_browser = None
+    temp_page = None
     api_url = f"https://kick.com/api/v2/channels/{username}"
+
     try:
-        async with httpx.AsyncClient() as client:
-            # Add headers if necessary, e.g., User-Agent
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36'}
-            response = await client.get(api_url, headers=headers, timeout=10.0)
-            response.raise_for_status() # Raise exception for bad status codes
-            data = response.json()
+        temp_playwright = await async_playwright().start()
+        # Launch temporary browser for this specific task
+        temp_browser = await temp_playwright.chromium.launch(
+             headless=True, # Keep headless unless debugging
+             args=['--no-sandbox', '--disable-setuid-sandbox']
+        )
+        temp_page = await temp_browser.new_page()
+
+        # *** Apply stealth BEFORE navigation ***
+        await stealth_async(temp_page)
+        logger.info(f"Stealth applied to temporary page for {username} ID lookup.")
+
+        await temp_page.goto(api_url, wait_until="load", timeout=60000) # 60s timeout for navigation
+
+        # Wait needed for potential Cloudflare JS execution or redirects
+        await temp_page.wait_for_timeout(5000) # Wait 5 seconds for JS challenges
+
+        # Check final URL in case of redirects
+        final_url = temp_page.url
+        if final_url != api_url and "challenges.cloudflare.com" in final_url:
+             logger.error(f"Cloudflare challenge persisted for {username} at {api_url}. Failed to bypass.")
+             return None
+
+        # Attempt to get page content
+        content = await temp_page.content() # Get full HTML/content
+
+        # Look for JSON within the content (sometimes it's in <pre> or body directly)
+        body_text = await temp_page.inner_text("body") # More reliable for API endpoints
+        if not body_text:
+             logger.warning(f"No response body content found for username: {username} at {api_url}")
+             # Log content for debugging if needed
+             # logger.debug(f"Full page content for {username}:\n{content[:500]}...")
+             return None
+
+        # Check if it's the Cloudflare challenge page HTML
+        if "<title>Just a moment...</title>" in content or "challenges.cloudflare.com" in content:
+            logger.warning(f"Cloudflare challenge detected for {username} at {api_url} even after stealth.")
+            # Optionally add more sophisticated waiting/interaction here if needed
+            return None
+
+        logger.debug(f"Raw body text for {username} channel ID: {body_text[:200]}...") # Log beginning of response
+
+        try:
+            data = json.loads(body_text)
             channel_id = data.get("id")
             if not channel_id:
-                logger.warning(f"Channel ID not found in API response for username: {username}")
+                logger.warning(f"Channel ID key 'id' not found in JSON for username: {username}. Data: {data}")
                 return None
-            logger.info(f"Found channel ID via API for {username}: {channel_id}")
+            logger.info(f"Found channel ID via Playwright for {username}: {channel_id}")
             return str(channel_id)
-    except httpx.HTTPStatusError as e:
-        # Check for Cloudflare challenge (403 with specific text)
-        if e.response.status_code == 403 and "Just a moment..." in e.response.text:
-            logger.warning(f"Cloudflare challenge detected for {username}. Waiting 2 seconds...")
-            time.sleep(2) # Wait for 2 seconds
-        # Log the original error regardless
-        logger.error(f"API request failed for {username} with status {e.response.status_code}: {e.response.text[:500]}...") # Log truncated text
-        return None
-    except httpx.RequestError as e:
-        logger.error(f"API request error for {username}: {str(e)}")
-        return None
-    except json.JSONDecodeError:
-        logger.error(f"Failed to parse API JSON response for {username}")
-        return None
-    except Exception as e:
-        logger.error(f"Unexpected error getting channel ID via API for {username}: {str(e)}")
-        return None
+        except json.JSONDecodeError:
+            logger.error(f"Failed to parse JSON from response body for {username}. Body was: {body_text[:500]}...")
+            return None
 
-async def get_latest_subscriber_api(channel_id):
-    """Get the latest Kick subscriber using httpx."""
+    except PlaywrightTimeoutError as e:
+        logger.error(f"Playwright timeout getting channel ID for {username}: {str(e)}")
+        return None
+    except PlaywrightError as e:
+         logger.error(f"Playwright error getting channel ID for {username}: {str(e)}")
+         if "Target closed" in str(e):
+             logger.error("Browser context might have been closed unexpectedly.")
+         return None
+    except Exception as e:
+        logger.exception(f"Unexpected error getting channel ID for {username}: {str(e)}") # Use exception for traceback
+        return None
+    finally:
+        # *** Ensure temporary resources are closed ***
+        if temp_page:
+            try: await temp_page.close()
+            except Exception as e_pg: logger.debug(f"Minor error closing temp page: {e_pg}")
+        if temp_browser:
+            try: await temp_browser.close()
+            except Exception as e_br: logger.debug(f"Minor error closing temp browser: {e_br}")
+        if temp_playwright: # Only stop if we started it here (should always be true in this func)
+             try: await temp_playwright.stop()
+             except Exception as e_pw: logger.debug(f"Minor error stopping temp playwright: {e_pw}")
+
+
+async def get_latest_subscriber(channel_id):
+    """Get the latest Kick subscriber using a TEMPORARY Playwright instance with stealth."""
+    logger.info(f"Attempting to get latest subscriber for channel ID {channel_id} using Playwright + Stealth...")
+    temp_playwright = None
+    temp_browser = None
+    temp_page = None
     api_url = f"https://kick.com/api/v2/channels/{channel_id}/subscribers/last"
+
     try:
-        async with httpx.AsyncClient() as client:
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36'}
-            response = await client.get(api_url, headers=headers, timeout=10.0)
-            response.raise_for_status()
-            data = response.json()
-            if "data" in data:
+        temp_playwright = await async_playwright().start()
+        temp_browser = await temp_playwright.chromium.launch(
+             headless=True,
+             args=['--no-sandbox', '--disable-setuid-sandbox']
+        )
+        temp_page = await temp_browser.new_page()
+        await stealth_async(temp_page) # Apply stealth before navigating
+        logger.info(f"Stealth applied to temporary page for latest subscriber lookup (Channel {channel_id}).")
+
+        await temp_page.goto(api_url, wait_until="load", timeout=60000)
+        await temp_page.wait_for_timeout(3000) # Short wait for potential JS
+
+        content = await temp_page.content()
+        if "<title>Just a moment...</title>" in content or "challenges.cloudflare.com" in content:
+            logger.warning(f"Cloudflare challenge detected for latest subscriber API (Channel {channel_id}).")
+            return None
+
+        body_text = await temp_page.inner_text("body")
+        if not body_text:
+             logger.warning(f"No response body content found for latest subscriber API (Channel {channel_id})")
+             return None
+
+        try:
+            data = json.loads(body_text)
+            if "data" in data and data["data"]: # Check if data exists and is not empty/null
+                logger.info(f"Found latest subscriber data for channel {channel_id}")
                 return data["data"]
             else:
-                logger.warning(f"No subscriber data found in API response for channel: {channel_id}")
+                logger.warning(f"No subscriber 'data' key found in JSON response for channel: {channel_id}. Data: {data}")
                 return None
-    except httpx.HTTPStatusError as e:
-        logger.error(f"API request failed for latest sub (channel {channel_id}) with status {e.response.status_code}: {e.response.text}")
-        return None
-    except httpx.RequestError as e:
-        logger.error(f"API request error for latest sub (channel {channel_id}): {str(e)}")
-        return None
-    except json.JSONDecodeError:
-        logger.error(f"Failed to parse API JSON response for latest sub (channel {channel_id})")
-        return None
-    except Exception as e:
-        logger.error(f"Unexpected error getting latest sub via API (channel {channel_id}): {str(e)}")
-        return None
-# --- End API Calls ---
+        except json.JSONDecodeError:
+            logger.error(f"Failed to parse JSON for latest subscriber (Channel {channel_id}). Body was: {body_text[:500]}...")
+            return None
 
-def parse_time(time_str):
-    """Convert a Kick chat timestamp string (e.g., '08:22 PM') to a more usable format or keep as string."""
-    # Kick timestamps are relative to the viewer's timezone and don't include date.
-    # For now, just return the string. You could try parsing it if needed, but date info is missing.
-    return time_str.strip()
+    except PlaywrightTimeoutError as e:
+        logger.error(f"Playwright timeout getting latest subscriber for {channel_id}: {str(e)}")
+        return None
+    except PlaywrightError as e:
+         logger.error(f"Playwright error getting latest subscriber for {channel_id}: {str(e)}")
+         return None
+    except Exception as e:
+        logger.exception(f"Unexpected error getting latest subscriber for {channel_id}: {str(e)}")
+        return None
+    finally:
+        # Ensure temporary resources are closed
+        if temp_page:
+             try: await temp_page.close()
+             except Exception as e_pg: logger.debug(f"Minor error closing temp page: {e_pg}")
+        if temp_browser:
+             try: await temp_browser.close()
+             except Exception as e_br: logger.debug(f"Minor error closing temp browser: {e_br}")
+        if temp_playwright:
+             try: await temp_playwright.stop()
+             except Exception as e_pw: logger.debug(f"Minor error stopping temp playwright: {e_pw}")
+# --- End Playwright-based API Calls ---
+
+
+def parse_kick_timestamp(time_str):
+    """Placeholder for parsing Kick's chat timestamp (e.g., '08:22 PM') if needed."""
+    return time_str.strip() # Currently returns as string
+
 
 async def wait_for_selector_with_retry(page, selector, max_retries=5, delay=5, timeout_per_try=60000):
-    """
-    Attempt to wait for a selector with retries and longer timeouts.
-    Args:
-        page: The Playwright page object.
-        selector: The CSS selector to wait for.
-        max_retries: Maximum number of attempts.
-        delay: Delay in seconds between retries.
-        timeout_per_try: Timeout in milliseconds for each attempt.
-    Returns:
-        The ElementHandle if found.
-    Raises:
-        PlaywrightTimeoutError: If the selector is not found after all retries.
-    """
+    """Attempts to wait for a selector with retries and longer timeouts."""
+    # (Implementation remains the same as the previous good version)
     attempt = 1
     last_exception = None
     while attempt <= max_retries:
@@ -142,9 +223,7 @@ async def wait_for_selector_with_retry(page, selector, max_retries=5, delay=5, t
         except PlaywrightError as e: # Catch other potential playwright errors
              logger.error(f"Attempt {attempt}: Playwright error waiting for selector '{selector}': {str(e)}")
              last_exception = e
-             # Decide if retry is appropriate for this error, e.g., context closed
-             if "closed" in str(e).lower():
-                  raise e # Don't retry if context/page is closed
+             if "closed" in str(e).lower(): raise e # Don't retry if context/page is closed
              await asyncio.sleep(delay)
              attempt += 1
 
@@ -153,19 +232,18 @@ async def wait_for_selector_with_retry(page, selector, max_retries=5, delay=5, t
 
 
 async def poll_messages(channel_name):
-    """
-    Continuously poll for new chat messages by scraping the channel's page.
-    Uses the persistent `driver_page`.
-    """
+    """Continuously poll for new chat messages using the persistent driver_page."""
+    # (Implementation remains largely the same as the previous good version,
+    # ensure selectors match the target HTML structure)
     global last_processed_index, polling_active, driver_page
     if not driver_page or driver_page.is_closed():
-        logger.error("Polling cannot start: Playwright page is not initialized or closed.")
+        logger.error("Polling cannot start: Persistent Playwright page is not initialized or closed.")
         polling_active = False
         return
 
     logger.info(f"Starting Kick chat DOM polling for channel: {channel_name}")
+    message_selector = "div#chatroom-messages > div.relative > div[data-index]" # Selector for message wrappers
 
-    # Main polling loop
     while polling_active:
         try:
             if driver_page.is_closed():
@@ -173,11 +251,13 @@ async def poll_messages(channel_name):
                  polling_active = False
                  break
 
-            # More specific selector for messages within the container
-            message_selector = "div#chatroom-messages > div.relative > div[data-index]"
             message_elements = await driver_page.query_selector_all(message_selector)
+            if not message_elements:
+                # logger.debug("No message elements found in current poll cycle.")
+                await asyncio.sleep(1) # Wait a bit longer if nothing is found
+                continue
 
-            new_messages_found = False
+            new_messages_found_in_batch = False
             max_index_in_batch = last_processed_index
 
             for element in message_elements:
@@ -188,124 +268,130 @@ async def poll_messages(channel_name):
                 except ValueError: continue
 
                 if index > last_processed_index:
-                    new_messages_found = True
-                    max_index_in_batch = max(max_index_in_batch, index) # Track highest index in this batch
+                    new_messages_found_in_batch = True
+                    max_index_in_batch = max(max_index_in_batch, index)
 
-                    # --- Extract Message Details ---
                     timestamp_text = "N/A"
-                    username_text = "System" # Default for system messages
+                    username_text = "System"
                     message_text = ""
                     is_reply = False
 
                     try:
-                        # Check if it's a reply message structure first
-                        reply_header = await element.query_selector("div.text-white/40")
+                        # Check for reply structure
+                        reply_header = await element.query_selector(":scope > div.text-white\\/40") # Need to escape slash for CSS
                         if reply_header:
                             is_reply = True
-                            #logger.debug(f"Skipping reply message structure for now (Index: {index})")
-                            # If you want to parse replies, add specific logic here
-                            # For now, we primarily target non-reply messages
+                            # logger.debug(f"Parsing reply structure for index {index}")
+                            # Timestamp in replies might be nested differently or absent, adjust if needed
+                            ts_el = await element.query_selector(":scope > div > span.text-neutral.pr-1.font-semibold")
+                            if ts_el: timestamp_text = parse_kick_timestamp(await ts_el.inner_text())
 
-                        # Timestamp (Specific selector)
-                        ts_el = await element.query_selector("span.text-neutral.pr-1.font-semibold:not([style*='display: none'])") # Added :not style check just in case
-                        if ts_el:
-                            timestamp_text = parse_time(await ts_el.inner_text())
+                            # User in replies is often inside the main div -> inline-flex -> button
+                            usr_el = await element.query_selector(":scope > div > div.inline-flex button.inline.font-bold")
+                            if usr_el: username_text = (await usr_el.get_attribute("title") or await usr_el.inner_text()).strip()
 
-                        # Username (Specific selector)
-                        usr_el = await element.query_selector(":scope > div.inline-flex button.inline.font-bold") # :scope ensures it's a direct child interaction
-                        if usr_el:
-                             username_text = (await usr_el.get_attribute("title") or await usr_el.inner_text()).strip() # Use title attr first
+                            # Message content in replies is often the last direct span child of the main div
+                            msg_content_el = await element.query_selector(":scope > div > span.font-normal.leading-\\[1\\.55\\]")
+                            if msg_content_el: message_text = await msg_content_el.inner_text()
 
-                        # Message Content (More specific selector)
-                        # This targets the span containing the message, attempting to exclude the timestamp/username parts
-                        msg_content_el = await element.query_selector(":scope > span.font-normal.leading-\\[1\\.55\\]")
-                        if msg_content_el:
-                            # inner_text() is usually good but might include hidden elements or alt text.
-                            # evaluate might be more robust if complex HTML/emotes are issues.
-                            message_text = await msg_content_el.inner_text()
-                            # Basic cleanup (optional)
-                            message_text = ' '.join(message_text.split()) # Normalize whitespace
+                        else: # Standard message structure
+                            # Timestamp
+                            ts_el = await element.query_selector(":scope > span.text-neutral.pr-1.font-semibold")
+                            if ts_el: timestamp_text = parse_kick_timestamp(await ts_el.inner_text())
 
-                        # Handle system messages (like BotRix level ups) - often lack user button
-                        if username_text == "System" and not msg_content_el:
-                             # Maybe the whole message is in a different structure
+                            # Username
+                            usr_el = await element.query_selector(":scope > div.inline-flex button.inline.font-bold")
+                            if usr_el: username_text = (await usr_el.get_attribute("title") or await usr_el.inner_text()).strip()
+                            elif await element.query_selector(":scope > div.inline-flex button[title='BotRix']"): # Specific case for BotRix
+                                 username_text = "BotRix"
+
+
+                            # Message Content
+                            msg_content_el = await element.query_selector(":scope > span.font-normal.leading-\\[1\\.55\\]")
+                            if msg_content_el:
+                                message_text = await msg_content_el.inner_text()
+                                # Attempt to extract text from emotes' alt attributes if inner_text is empty/just whitespace
+                                if not message_text.strip():
+                                     emote_texts = []
+                                     emote_imgs = await msg_content_el.query_selector_all("img[alt]")
+                                     for img in emote_imgs:
+                                          alt_text = await img.get_attribute("alt")
+                                          if alt_text: emote_texts.append(f":{alt_text}:") # Format like :emoteName:
+                                     message_text = " ".join(emote_texts)
+
+
+                        # Final check for system-like messages we couldn't parse
+                        if username_text == "System" and not message_text:
                              full_msg_text = await element.inner_text()
-                             if ":" in full_msg_text: # Basic check
+                             if ":" in full_msg_text:
                                   parts = full_msg_text.split(':', 1)
-                                  potential_user_part = parts[0].split(']')[-1].strip() # Try to get user after timestamp
+                                  potential_user_part = parts[0].split(']')[-1].strip()
                                   if potential_user_part: username_text = potential_user_part
                                   message_text = parts[1].strip()
                              else:
-                                  message_text = full_msg_text # Fallback
+                                  message_text = " ".join(full_msg_text.split()) # Use cleaned full text
+                             logger.debug(f"Using fallback parsing for index {index}, User: {username_text}, Msg: {message_text[:50]}...")
 
-                        # Filter out empty messages or messages we couldn't parse well
-                        if not message_text and username_text == "System":
-                             logger.debug(f"Skipping message index {index} - likely unparsed system/event message.")
-                             continue # Don't queue empty/system messages we failed to parse
-
-                        # Create and queue the message
-                        msg = {
-                            "data_index": index,
-                            "timestamp": timestamp_text,
-                            "sender": username_text,
-                            "content": message_text.strip(),
-                            "is_reply": is_reply,
-                        }
-                        message_queue.put(msg)
-                        # logger.info(f"Queueing message: Index {index} - {username_text}")
-
+                        # --- Queue the message ---
+                        if username_text and (message_text or username_text != "System"): # Ensure we have something meaningful
+                            msg = {
+                                "data_index": index,
+                                "timestamp": timestamp_text,
+                                "sender": username_text,
+                                "content": message_text.strip(),
+                                "is_reply": is_reply,
+                            }
+                            message_queue.put(msg)
+                        else:
+                             logger.debug(f"Skipping queuing message index {index} due to missing sender/content after parsing.")
 
                     except Exception as parse_err:
-                        logger.error(f"Error parsing message at index {index}: {str(parse_err)}")
-                        # Optionally log the outerHTML of the problematic element for debugging
-                        # try:
-                        #     outer_html = await element.evaluate("el => el.outerHTML")
-                        #     logger.debug(f"Problematic element HTML: {outer_html[:500]}...") # Log first 500 chars
-                        # except Exception as html_err:
-                        #     logger.error(f"Could not get HTML of problematic element: {html_err}")
+                        logger.error(f"Error parsing message details at index {index}: {str(parse_err)}")
+                        try:
+                            outer_html = await element.evaluate("el => el.outerHTML")
+                            logger.debug(f"Problematic element HTML for index {index}: {outer_html[:500]}...")
+                        except Exception as html_err:
+                             logger.error(f"Could not get HTML of problematic element index {index}: {html_err}")
 
-
-            # Update last_processed_index *after* processing the entire batch
-            if new_messages_found:
+            # Update index after processing batch
+            if new_messages_found_in_batch:
                 last_processed_index = max_index_in_batch
-                logger.info(f"Processed messages up to index {last_processed_index}")
+                logger.info(f"Processed DOM messages up to index {last_processed_index}")
 
-            # Polling interval
-            await asyncio.sleep(0.75) # Slightly longer sleep
+            await asyncio.sleep(0.8) # Polling interval
 
         except PlaywrightError as e:
-            if "closed" in str(e).lower():
-                 logger.error(f"Playwright connection closed during polling: {str(e)}")
-                 polling_active = False # Stop polling if the browser/page context is lost
+            if "closed" in str(e).lower() or "browser has been closed" in str(e):
+                 logger.error(f"Persistent Playwright connection closed during polling: {str(e)}")
+                 polling_active = False
                  break
             else:
                  logger.error(f"Unhandled Playwright error during DOM polling: {str(e)}")
-                 await asyncio.sleep(5) # Wait longer after generic errors
+                 await asyncio.sleep(5)
         except Exception as e:
-            logger.error(f"Generic error during DOM message polling: {str(e)}")
-            await asyncio.sleep(5) # Wait longer after generic errors
+            logger.exception(f"Generic error during DOM message polling loop: {str(e)}") # Use exception for traceback
+            await asyncio.sleep(5)
 
     logger.info(f"Stopped Kick chat DOM polling for channel: {channel_name}")
 
 
 async def stream_messages(channel_name):
     """Process messages from the queue and broadcast them."""
+    # (Implementation remains the same as the previous good version)
     global polling_active
     logger.info(f"Starting Kick chat message streaming for channel: {channel_name}")
     while polling_active or not message_queue.empty(): # Process remaining messages after polling stops
         try:
             if not message_queue.empty():
                 msg = message_queue.get()
-                # Log the raw message being processed
-                # logger.debug(f"Streaming message: {msg}")
 
                 sender = msg.get("sender", "Unknown")
                 content = msg.get("content", "")
                 timestamp = msg.get("timestamp", "N/A")
 
-                # Basic validation
-                if not sender or sender == "System" and not content: # Skip potentially bad parses
-                    logger.debug(f"Skipping message streaming for index {msg.get('data_index')} due to missing sender/content.")
+                if not sender or (sender == "System" and not content):
+                    logger.debug(f"Skipping streaming message index {msg.get('data_index')} due to missing sender/content.")
+                    message_queue.task_done()
                     continue
 
                 message_data = {
@@ -319,28 +405,26 @@ async def stream_messages(channel_name):
                 }
                 await globals.manager.broadcast(json.dumps(message_data))
 
-                # Add to config history (optional)
-                # Consider thread safety if config is accessed elsewhere concurrently
+                # Add to config history (ensure thread safety if needed)
                 config.kick_chat_messages.append(message_data["data"])
                 if len(config.kick_chat_messages) > 100:
                     config.kick_chat_messages = config.kick_chat_messages[-100:]
 
-                message_queue.task_done() # Mark task as done for the queue
+                message_queue.task_done()
             else:
-                # If polling stopped and queue is empty, exit
-                if not polling_active:
-                    break
-                await asyncio.sleep(0.2) # Small sleep when queue is empty but polling active
+                if not polling_active: break # Exit if polling stopped and queue empty
+                await asyncio.sleep(0.2)
         except Exception as e:
             logger.error(f"Error streaming message: {str(e)}")
-            await asyncio.sleep(0.5) # Wait a bit after an error
+            await asyncio.sleep(0.5)
 
     logger.info(f"Stopped Kick chat message streaming for channel: {channel_name}")
 
+
 async def connect_kick_chat(channel_name):
-    """Connect to Kick chat: Initialize browser, navigate, and start polling/streaming."""
-    global driver_page, browser_instance, playwright_instance, polling_active, last_processed_index
-    global polling_task, streaming_task # Keep track of tasks
+    """Connect to Kick chat: Get ID (via Playwright), init persistent browser, start polling."""
+    global driver_page, browser_instance_persistent, playwright_instance_persistent
+    global polling_active, last_processed_index, polling_task, streaming_task
 
     if not channel_name or channel_name.isspace():
         logger.warning("Connect Kick chat request missing channel name.")
@@ -354,7 +438,7 @@ async def connect_kick_chat(channel_name):
     if config.kick_chat_connected:
         logger.info(f"Disconnecting previous Kick chat ({config.kick_channel_name}) before connecting to {channel_name}.")
         await disconnect_kick_chat()
-        await asyncio.sleep(2) # Give ample time for cleanup
+        await asyncio.sleep(2)
 
     # --- Reset state ---
     last_processed_index = -1
@@ -363,52 +447,65 @@ async def connect_kick_chat(channel_name):
         try: message_queue.get_nowait()
         except: pass
 
-    # --- Get Channel ID (Using efficient API call) ---
-    logger.info(f"Getting channel ID for: {channel_name} via API")
-    channel_id = await get_kick_channel_id_api(channel_name)
+    # --- Get Channel ID (Using Playwright due to Cloudflare) ---
+    logger.info(f"Getting channel ID for: {channel_name} using Playwright...")
+    # Tokens not strictly needed for this endpoint usually, but passing anyway
+    tokens = load_kick_tokens()
+    channel_id = await get_kick_channel_id(channel_name) # Uses the Playwright version now
     if not channel_id:
-        logger.warning(f"Could not find Kick channel via API: {channel_name}")
-        await globals.manager.broadcast(json.dumps({"type": "error", "data": {"message": f"Could not find Kick channel: {channel_name}"}}))
+        logger.error(f"Could not get Kick channel ID via Playwright for: {channel_name}")
+        await globals.manager.broadcast(json.dumps({
+            "type": "error",
+            "data": {"message": f"Could not find Kick channel or bypass protection for: {channel_name}"}
+        }))
         return False
 
-    # --- Initialize Playwright (Only if not already running) ---
+    # --- Initialize PERSISTENT Playwright for scraping (if needed) ---
     try:
-        if not playwright_instance:
-            logger.info("Initializing Playwright...")
-            playwright_instance = await async_playwright().start()
-        if not browser_instance or not browser_instance.is_connected():
-             logger.info("Launching new browser instance...")
-             # Consider adding user agent options, proxy, etc. if needed
-             browser_instance = await playwright_instance.chromium.launch(
-                 headless=True, # Set to False for debugging
-                 args=['--no-sandbox', '--disable-setuid-sandbox'] # Common args for docker/linux
+        if not playwright_instance_persistent:
+            logger.info("Initializing Persistent Playwright...")
+            playwright_instance_persistent = await async_playwright().start()
+
+        if not browser_instance_persistent or not browser_instance_persistent.is_connected():
+             logger.info("Launching Persistent Browser Instance...")
+             browser_instance_persistent = await playwright_instance_persistent.chromium.launch(
+                 headless=True, # Or False for debugging
+                 args=['--no-sandbox', '--disable-setuid-sandbox']
              )
+             # Optional: Add listener for disconnect
+             browser_instance_persistent.on("disconnected", lambda: logger.warning("Persistent browser disconnected!"))
+
+
         if not driver_page or driver_page.is_closed():
-            logger.info("Opening new browser page...")
-            driver_page = await browser_instance.new_page()
-            logger.info("Applying stealth...")
+            logger.info("Opening Persistent Browser Page...")
+            # Create a new context potentially, for better isolation if needed
+            # context = await browser_instance_persistent.new_context()
+            # driver_page = await context.new_page()
+            driver_page = await browser_instance_persistent.new_page()
+            logger.info("Applying stealth to Persistent Page...")
             await stealth_async(driver_page)
+            driver_page.on("close", lambda: logger.warning("Persistent driver page was closed!")) # Log if page closes unexpectedly
 
-        # --- Navigate and Wait ---
+
+        # --- Navigate Persistent Page and Wait ---
         chat_url = f"https://kick.com/{channel_name}"
-        logger.info(f"Navigating to {chat_url}...")
-        # Increased navigation timeout
-        await driver_page.goto(chat_url, wait_until="load", timeout=90000) # 90 seconds for initial load
+        logger.info(f"Navigating Persistent Page to {chat_url}...")
+        await driver_page.goto(chat_url, wait_until="load", timeout=90000)
 
-        # Wait specifically for the message container, with retries
-        logger.info("Waiting for chat messages container to be visible...")
-        await wait_for_selector_with_retry(driver_page, "#chatroom-messages", timeout_per_try=60000) # 60s per try
-        logger.info("Chat messages container found.")
-        # Optionally wait for the input wrapper too, as another sign of readiness
-        # await wait_for_selector_with_retry(driver_page, "#chat-input-wrapper", timeout_per_try=30000)
-        # logger.info("Chat input wrapper found.")
+        logger.info("Waiting for chat messages container (#chatroom-messages)...")
+        await wait_for_selector_with_retry(driver_page, "#chatroom-messages", timeout_per_try=60000)
+        logger.info("Chat messages container found on Persistent Page.")
 
-        # --- Start Polling and Streaming ---
+        # --- Start Polling and Streaming Tasks ---
         polling_active = True
         config.kick_channel_id = channel_id
         config.kick_channel_name = channel_name
 
         logger.info("Creating polling and streaming tasks...")
+        # Ensure previous tasks are properly handled if reconnecting quickly
+        if polling_task and not polling_task.done(): polling_task.cancel()
+        if streaming_task and not streaming_task.done(): streaming_task.cancel()
+
         polling_task = asyncio.create_task(poll_messages(channel_name))
         streaming_task = asyncio.create_task(stream_messages(channel_name))
 
@@ -420,35 +517,35 @@ async def connect_kick_chat(channel_name):
         return True
 
     except PlaywrightTimeoutError as e:
-         logger.error(f"Connection failed: Timeout waiting for critical element on {channel_name}'s page. {e}")
-         await globals.manager.broadcast(json.dumps({"type": "error", "data": {"message": f"Failed to load Kick channel page for {channel_name} (timeout). Is the channel live or does the page load correctly?"}}))
-         await disconnect_kick_chat() # Attempt cleanup
+         logger.error(f"Connection failed: Timeout waiting for critical element on {channel_name}'s page (Persistent Browser). {e}")
+         await globals.manager.broadcast(json.dumps({"type": "error", "data": {"message": f"Failed to load Kick channel page for {channel_name} (timeout). Is the channel live?"}}))
+         await disconnect_kick_chat()
          return False
     except PlaywrightError as e:
-         logger.error(f"Connection failed: Playwright error connecting to {channel_name}: {str(e)}")
+         logger.error(f"Connection failed: Playwright error preparing persistent browser for {channel_name}: {str(e)}")
          await globals.manager.broadcast(json.dumps({"type": "error", "data": {"message": f"Playwright error connecting to Kick: {str(e)}"}}))
          await disconnect_kick_chat()
          return False
     except Exception as e:
-        logger.exception(f"Unexpected error connecting to Kick chat for {channel_name}: {str(e)}") # Use exception for full traceback
+        logger.exception(f"Unexpected error during persistent browser setup for {channel_name}: {str(e)}")
         await globals.manager.broadcast(json.dumps({"type": "error", "data": {"message": f"Failed to connect to Kick chat: {str(e)}"}}))
-        await disconnect_kick_chat() # Ensure cleanup on any error
+        await disconnect_kick_chat()
         return False
 
+
 async def disconnect_kick_chat():
-    """Disconnect from Kick chat, stop tasks, and clean up Playwright resources."""
-    global driver_page, browser_instance, playwright_instance, polling_active
-    global polling_task, streaming_task
+    """Disconnect from Kick chat, stop tasks, and clean up persistent Playwright page."""
+    global driver_page, polling_active, polling_task, streaming_task
+    # Note: We typically keep the persistent browser and playwright instance running unless the app shuts down.
 
     if not config.kick_chat_connected and not polling_active:
         logger.info("No active Kick chat connection or tasks to disconnect.")
-        # Still attempt cleanup just in case resources linger
     else:
-         logger.info(f"Disconnecting from Kick chat: {config.kick_channel_name or 'Unknown'}")
+        logger.info(f"Disconnecting from Kick chat: {config.kick_channel_name or 'Unknown'}")
 
     polling_active = False # Signal loops to stop
 
-    # --- Cancel running tasks ---
+    # Cancel running tasks
     if polling_task and not polling_task.done():
         polling_task.cancel()
         logger.info("Polling task cancellation requested.")
@@ -456,53 +553,37 @@ async def disconnect_kick_chat():
         streaming_task.cancel()
         logger.info("Streaming task cancellation requested.")
 
-    # Wait briefly for tasks to acknowledge cancellation
-    await asyncio.sleep(1)
+    # Wait briefly for tasks
+    await asyncio.sleep(0.5)
 
-    # --- Cleanup Playwright ---
-    # We keep the browser instance alive usually, but close the page
+    # Close the specific page used for polling, but keep the browser alive
     try:
         if driver_page and not driver_page.is_closed():
-            logger.info("Closing Playwright page...")
+            logger.info("Closing persistent Playwright page...")
             await driver_page.close()
-            driver_page = None
-            logger.info("Playwright page closed.")
-        # Decide if you want to close the whole browser on disconnect
-        # If you expect frequent connect/disconnect, maybe keep the browser running.
-        # If disconnect means the app is stopping or changing focus entirely, close it.
-        # Example: Close browser on disconnect
-        # if browser_instance and browser_instance.is_connected():
-        #     logger.info("Closing Playwright browser...")
-        #     await browser_instance.close()
-        #     browser_instance = None
-        #     logger.info("Playwright browser closed.")
-        # if playwright_instance:
-        #      logger.info("Stopping Playwright...")
-        #      await playwright_instance.stop()
-        #      playwright_instance = None
-        #      logger.info("Playwright stopped.")
-
+            logger.info("Persistent Playwright page closed.")
     except Exception as e:
-        logger.error(f"Error during Playwright cleanup: {str(e)}")
+        logger.error(f"Error closing persistent driver page: {str(e)}")
     finally:
-        # Ensure globals are reset even if cleanup fails
-        driver_page = None
-        # Reset browser/playwright if you decided to close them above
-        # browser_instance = None
-        # playwright_instance = None
+        driver_page = None # Ensure it's marked as closed
 
-    # --- Reset Config and Globals ---
+    # Reset Config and Globals
     disconnected_channel = config.kick_channel_name or "Unknown"
     config.kick_chat_connected = False
     config.kick_chat_stream = None
     config.kick_channel_id = None
     config.kick_channel_name = None
+    last_processed_index = -1
+    polling_task = None
+    streaming_task = None
+
+    # Clear message queue
     while not message_queue.empty():
         try: message_queue.get_nowait()
         except: break
     logger.info("Message queue cleared.")
 
-    # --- Notify Clients ---
+    # Notify Clients
     try:
         await globals.manager.broadcast(json.dumps({
             "type": "kick_chat_disconnected",
@@ -514,24 +595,48 @@ async def disconnect_kick_chat():
     logger.info(f"Successfully disconnected from Kick chat: {disconnected_channel}")
     return True
 
-# Example of how you might shut down gracefully on application exit
-async def shutdown_playwright():
-    global browser_instance, playwright_instance
-    logger.info("Shutting down Playwright resources...")
-    if browser_instance and browser_instance.is_connected():
-        try:
-            await browser_instance.close()
-            logger.info("Browser instance closed.")
-        except Exception as e:
-            logger.error(f"Error closing browser instance: {e}")
-    if playwright_instance:
-         try:
-              await playwright_instance.stop()
-              logger.info("Playwright instance stopped.")
-         except Exception as e:
-              logger.error(f"Error stopping playwright instance: {e}")
-    browser_instance = None
-    playwright_instance = None
 
-# Remember to call shutdown_playwright() when your application exits,
-# e.g., using a signal handler or an `atexit` registration.
+async def shutdown_playwright():
+    """Gracefully close persistent Playwright browser and stop the instance."""
+    global browser_instance_persistent, playwright_instance_persistent, driver_page
+    logger.info("Shutting down Persistent Playwright resources...")
+
+    # Ensure page is closed first
+    if driver_page and not driver_page.is_closed():
+         try:
+              await driver_page.close()
+              logger.info("Persistent page closed during shutdown.")
+         except Exception as e:
+              logger.error(f"Error closing persistent page during shutdown: {e}")
+         driver_page = None
+
+    # Close browser
+    if browser_instance_persistent and browser_instance_persistent.is_connected():
+        try:
+            await browser_instance_persistent.close()
+            logger.info("Persistent browser instance closed.")
+        except Exception as e:
+            logger.error(f"Error closing persistent browser instance: {e}")
+    browser_instance_persistent = None
+
+    # Stop Playwright
+    if playwright_instance_persistent:
+         try:
+              await playwright_instance_persistent.stop()
+              logger.info("Persistent Playwright instance stopped.")
+         except Exception as e:
+              logger.error(f"Error stopping persistent playwright instance: {e}")
+    playwright_instance_persistent = None
+
+# --- Example Usage (within an async context) ---
+# async def main():
+#     # Load config, setup globals etc.
+#     connected = await connect_kick_chat("oakleyboiii")
+#     if connected:
+#         logger.info("Connection successful, running for 60 seconds...")
+#         await asyncio.sleep(60)
+#         await disconnect_kick_chat()
+#     await shutdown_playwright()
+
+# if __name__ == "__main__":
+#     asyncio.run(main())
