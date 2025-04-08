@@ -140,6 +140,40 @@ async def handle_ws_message(websocket: WebSocket, message: dict):
             # Example: await audio_utils.speak_messages_for_selected_viewers()
             await globals.manager.send_personal_message(json.dumps({"type": "info", "data": {"message": "TTS triggering not implemented"}}), websocket)
 
+        # --- Handle Control Messages for Kick Overlay ---
+        elif msg_type == "control_kick_overlay":
+            action = msg_data.get("action")
+            logger.info(f"Received Kick overlay control: action={action}, data={msg_data}")
+            command_data = {"command": action} # Base command data
+
+            # Handle different actions
+            if action == "set_limit":
+                value = msg_data.get("value")
+                if isinstance(value, int):
+                    command_data["limit"] = value
+                else:
+                    logger.warning(f"Invalid value for set_limit: {value}")
+                    return # Don't broadcast invalid command
+            elif action == "clear":
+                pass # No extra data needed
+            elif action == "set_layout":
+                flow = msg_data.get("flow")
+                if flow in ["upwards", "downwards"]:
+                    command_data["flow"] = flow
+                else:
+                    logger.warning(f"Invalid value for set_layout flow: {flow}")
+                    return # Don't broadcast invalid command
+            else:
+                logger.warning(f"Unknown or invalid Kick overlay control action: {action}")
+                # Optionally send an error back to the sender if needed
+                return # Don't broadcast unknown commands
+
+            overlay_command = {
+                "type": "kick_overlay_command",
+                "data": command_data
+            }
+            await globals.manager.broadcast(json.dumps(overlay_command))
+        # --- End Kick Overlay Control ---
 
         else:
             logger.warning(f"Received unhandled WebSocket message type: {msg_type}")
@@ -209,6 +243,20 @@ async def websocket_endpoint(websocket: WebSocket):
 # @app.get("/api/status")
 # async def get_status():
 #     return {"twitch_authenticated": config.IS_AUTHENTICATED, "kick_authenticated": config.KICK_IS_AUTHENTICATED}
+
+# --- Route for Kick Overlay ---
+@app.get("/kick-overlay", response_class=HTMLResponse)
+async def get_kick_overlay():
+    """Serves the HTML page for the Kick chat overlay."""
+    try:
+        with open("ui/kick_overlay.html", "r") as f:
+            return HTMLResponse(content=f.read(), status_code=200)
+    except FileNotFoundError:
+        logger.error("ui/kick_overlay.html not found.")
+        return HTMLResponse(content="<html><body><h1>Error: kick_overlay.html not found</h1></body></html>", status_code=404)
+    except Exception as e:
+        logger.error(f"Error reading ui/kick_overlay.html: {e}")
+        return HTMLResponse(content="<html><body><h1>Internal Server Error</h1></body></html>", status_code=500)
 
 # --- Application Startup/Shutdown ---
 @app.on_event("startup")

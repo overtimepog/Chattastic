@@ -1,0 +1,53 @@
+/* Basic reset and transparency */
+body {
+    background-color: transparent;
+    margin: 0;
+    padding: 10px; /* Add some padding around the edges */
+    font-family: Arial, sans-serif;
+    color: #ffffff; /* White text */
+    overflow: hidden; /* Hide scrollbars */
+    height: 100vh; /* Ensure body takes full height */
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end; /* Align messages to the bottom */
+}
+
+#chat-container {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 5px; /* Space between messages */
+    /* Default flow: upwards (new messages at bottom) */
+    flex-direction: column;
+    justify-content: flex-end;
+}
+
+/* Class for downwards flow (new messages at top) */
+#chat-container.flow-downwards {
+    flex-direction: column-reverse;
+    justify-content: flex-start;
+}
+
+/* Default upwards flow doesn't strictly need a class, but added for clarity */
+#chat-container.flow-upwards {
+    flex-direction: column;
+    justify-content: flex-end;
+}
+
+
+.chat-message {
+    background-color: rgba(0, 0, 0, 0.5); /* Semi-transparent black background */
+    padding: 5px 10px;
+    border-radius: 4px;
+    font-size: 16px; /* Adjust as needed */
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8); /* Text shadow for readability */
+    word-wrap: break-word; /* Wrap long words */
+}
+
+.chat-message strong {
+    font-weight: bold;
+    color: #a0a0ff; /* Light blue for sender name, adjust as needed */
+    margin-right: 5px;
+}
+
+/* Optional: Add fade-in/out animations later if desired */

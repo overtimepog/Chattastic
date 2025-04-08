@@ -68,6 +68,25 @@
         <!-- Add more controls as needed -->
     </div>
 
+    <div id="kick-overlay-control-section">
+        <h2>Kick Overlay Control</h2>
+        <button id="clear-kick-overlay-btn">Clear Overlay Messages</button>
+        <label for="kick-overlay-limit-input">Message Limit:</label>
+        <input type="number" id="kick-overlay-limit-input" value="15" min="1" max="50">
+        <button id="set-kick-overlay-limit-btn">Set Limit</button>
+        <br> <!-- Line break for spacing -->
+
+        <label>Message Flow:</label>
+        <input type="radio" id="flow-upwards" name="kick-overlay-flow" value="upwards" checked>
+        <label for="flow-upwards">Upwards (New at bottom)</label>
+        <input type="radio" id="flow-downwards" name="kick-overlay-flow" value="downwards">
+        <label for="flow-downwards">Downwards (New at top)</label>
+        <br> <!-- Line break for spacing -->
+
+        <button id="show-overlay-url-btn">Show Overlay URL</button>
+        <p id="overlay-url-display" style="display: none; margin-top: 5px; font-family: monospace; background-color: #eee; padding: 5px; border: 1px solid #ccc;"></p>
+    </div>
+
     <script src="/static/script.js"></script>
 </body>
 </html>

@@ -90,9 +90,12 @@ document.addEventListener('DOMContentLoaded', () => {
                  addChatMessage(`System Error: ${message.data.message}`);
                  console.error("Server Error:", message.data.message);
                  break;
+            case 'kick_overlay_message': // Intentionally ignore this type in the main UI
+                 console.log('Ignoring kick_overlay_message in main UI.');
+                 break;
             default:
                 console.warn('Received unknown message type:', message.type);
-                addChatMessage(`System: Received unknown message type: ${message.type}`);
+                addChatMessage(`System: Received unknown message type: ${escapeHTML(message.type)}`); // Escape type just in case
         }
     }
 
@@ -212,6 +215,61 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log('Trigger speak selected message sent');
     });
 
+    // --- Kick Overlay Control Listeners ---
+    const clearKickOverlayBtn = document.getElementById('clear-kick-overlay-btn');
+    const setKickOverlayLimitBtn = document.getElementById('set-kick-overlay-limit-btn');
+    const kickOverlayLimitInput = document.getElementById('kick-overlay-limit-input');
+
+    if (clearKickOverlayBtn) {
+        clearKickOverlayBtn.addEventListener('click', () => {
+            console.log('Sending clear overlay command...');
+            sendMessage({ type: 'control_kick_overlay', data: { action: 'clear' } });
+        });
+    } else {
+        console.error('Clear Kick Overlay button not found');
+    }
+
+    if (setKickOverlayLimitBtn && kickOverlayLimitInput) {
+        setKickOverlayLimitBtn.addEventListener('click', () => {
+            const limit = parseInt(kickOverlayLimitInput.value, 10);
+            if (!isNaN(limit) && limit > 0) {
+                console.log(`Sending set overlay limit command: ${limit}`);
+                sendMessage({ type: 'control_kick_overlay', data: { action: 'set_limit', value: limit } });
+            } else {
+                console.error('Invalid limit value entered.');
+                alert('Please enter a valid positive number for the message limit.');
+            }
+        });
+    } else {
+        console.error('Set Kick Overlay Limit button or input not found');
+    }
+
+    // Message Flow Radio Buttons
+    const flowRadios = document.querySelectorAll('input[name="kick-overlay-flow"]');
+    flowRadios.forEach(radio => {
+        radio.addEventListener('change', (event) => {
+            if (event.target.checked) {
+                const flowDirection = event.target.value;
+                console.log(`Sending set overlay layout command: flow=${flowDirection}`);
+                sendMessage({ type: 'control_kick_overlay', data: { action: 'set_layout', flow: flowDirection } });
+            }
+        });
+    });
+
+    // Show Overlay URL Button
+    const showUrlBtn = document.getElementById('show-overlay-url-btn');
+    const urlDisplay = document.getElementById('overlay-url-display');
+
+    if (showUrlBtn && urlDisplay) {
+        showUrlBtn.addEventListener('click', () => {
+            const overlayUrl = `http://${window.location.host}/kick-overlay`;
+            urlDisplay.textContent = overlayUrl;
+            urlDisplay.style.display = 'block'; // Make it visible
+        });
+    } else {
+        console.error('Show Overlay URL button or display element not found');
+    }
+    // --- End Kick Overlay Control Listeners ---
 
     // Initial connection
     connectWebSocket();
