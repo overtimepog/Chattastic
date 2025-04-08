@@ -51,3 +51,10 @@ body {
 }
 
 /* Optional: Add fade-in/out animations later if desired */
+
+/* Styling for emote images */
+.chat-emote {
+    height: 1.2em;
+    vertical-align: middle;
+    margin: 0 2px;
+}

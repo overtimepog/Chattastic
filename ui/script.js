@@ -67,13 +67,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 updateAuthStatus('kick', message.data.kick_authenticated);
                 currentTwitchChannel.textContent = message.data.twitch_channel || 'None';
                 currentKickChannel.textContent = message.data.kick_channel || 'None';
+                if (message.data.raffle_entries_count !== undefined) {
+                    document.getElementById('raffle-entries-count').textContent = `Raffle Entries: ${message.data.raffle_entries_count}`;
+                }
                 break;
             case 'twitch_chat_message':
                 addChatMessage(`Twitch (${message.data.channel}): ${message.data.user}: ${message.data.text}`);
                 break;
             case 'kick_chat_message':
                 // Use the new formatter function
-                addChatMessage(formatKickMessage(message.data));
+                const formattedMessage = formatKickMessage(message.data);
+                addChatMessage(formattedMessage);
+                console.log('Formatted Kick message:', formattedMessage); // Debug log
                 break;
             case 'viewer_list_update':
                 updateViewerList(message.data.viewers);
@@ -85,6 +90,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 addChatMessage(`System: Connected to Kick chat for ${escapeHTML(message.data.channel || 'Unknown')}`);
                 // Optionally update a status indicator if needed
                 currentKickChannel.textContent = message.data.channel || 'None'; // Update channel display
+                break;
+            case 'raffle_entry':
+                addChatMessage(`System: ${escapeHTML(message.data.user)} entered the raffle from ${message.data.platform}. Total entries: ${message.data.total_entries}`);
+                document.getElementById('raffle-entries-count').textContent = `Raffle Entries: ${message.data.total_entries}`;
+                break;
+            case 'raffle_entries_cleared':
+                addChatMessage(`System: Raffle entries cleared. Total entries: 0`);
+                document.getElementById('raffle-entries-count').textContent = 'Raffle Entries: 0';
                 break;
             case 'error':
                  addChatMessage(`System Error: ${message.data.message}`);
@@ -107,8 +120,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // New function to format Kick messages with badges
+    // Function to format Kick messages with badges and emotes
     function formatKickMessage(data) {
+        console.log('Formatting Kick message:', data); // Debug log
+
         let badgesHTML = '';
         // Check if identity and badges exist and are an array
         if (data.identity && Array.isArray(data.identity)) {
@@ -121,12 +136,60 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-    // Escape username and content to prevent XSS
-    const username = escapeHTML(data.user || 'Unknown'); // Use data.user
-    const content = escapeHTML(data.text || '');       // Use data.text
-    const channel = escapeHTML(data.channel || 'kick');
+        // Escape username to prevent XSS
+        const username = escapeHTML(data.user || 'Unknown'); // Use data.user
+        const channel = escapeHTML(data.channel || 'kick');
 
-    return `<p>Kick (${channel}): ${badgesHTML}<strong>${username}</strong>: ${content}</p>`;
+        // Process content with emotes
+        let contentHTML = '';
+        const messageText = data.text || '';
+        const emotes = data.emotes || [];
+
+        console.log('Message text:', messageText); // Debug log
+        console.log('Emotes:', emotes); // Debug log
+
+        if (emotes && emotes.length > 0) {
+            // Create a map of emote names to their URLs for quick lookup
+            const emoteMap = {};
+            emotes.forEach(emote => {
+                if (emote.name && emote.url) {
+                    emoteMap[emote.name] = emote.url;
+                    console.log(`Mapped emote: ${emote.name} -> ${emote.url}`); // Debug log
+                }
+            });
+
+            // Split the message by emote placeholders
+            const parts = messageText.split(/\[emote:([^\]]+)\]/);
+            console.log('Split parts:', parts); // Debug log
+
+            for (let i = 0; i < parts.length; i++) {
+                if (i % 2 === 0) {
+                    // Even indices are regular text
+                    if (parts[i]) {
+                        contentHTML += escapeHTML(parts[i]);
+                    }
+                } else {
+                    // Odd indices are emote names
+                    const emoteName = parts[i];
+                    const emoteUrl = emoteMap[emoteName];
+                    console.log(`Processing emote: ${emoteName}, URL: ${emoteUrl}`); // Debug log
+
+                    if (emoteUrl) {
+                        // Create an image element for the emote
+                        contentHTML += `<img src="${emoteUrl}" alt="${escapeHTML(emoteName)}" title="${escapeHTML(emoteName)}" class="chat-emote" style="height: 1.2em; vertical-align: middle;">`;
+                    } else {
+                        // Fallback if emote URL not found
+                        contentHTML += `[${escapeHTML(emoteName)}]`;
+                    }
+                }
+            }
+        } else {
+            // No emotes, just escape the text
+            contentHTML = escapeHTML(messageText);
+        }
+
+        console.log('Final content HTML:', contentHTML); // Debug log
+        return `<p>Kick (${channel}): ${badgesHTML}<strong>${username}</strong>: ${contentHTML}</p>`;
     }
 
     // Helper function to escape HTML special characters
@@ -206,7 +269,31 @@ document.addEventListener('DOMContentLoaded', () => {
     // Select random viewers button
     document.getElementById('select-random-viewers-btn').addEventListener('click', () => {
         const count = document.getElementById('viewer-count-select').value;
-        sendMessage({ type: 'select_random_viewers', data: { count: parseInt(count, 10) } });
+        const useRaffle = document.getElementById('raffle-mode').checked;
+
+        // Determine which platform to use based on current connections
+        let platform = 'twitch'; // Default to twitch
+        if (currentKickChannel.textContent !== 'None') {
+            platform = 'kick';
+        }
+
+        sendMessage({
+            type: 'select_random_viewers',
+            data: {
+                count: parseInt(count, 10),
+                use_raffle: useRaffle,
+                platform: platform
+            }
+        });
+
+        // Log the selection request
+        console.log(`Selecting ${count} viewers from ${platform} using ${useRaffle ? 'raffle' : 'random'} mode`);
+    });
+
+    // Clear raffle entries button
+    document.getElementById('clear-raffle-entries-btn').addEventListener('click', () => {
+        sendMessage({ type: 'clear_raffle_entries' });
+        console.log('Clear raffle entries message sent');
     });
 
     // Speak selected viewers button (placeholder)

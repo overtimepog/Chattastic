@@ -127,11 +127,37 @@ async def handle_ws_message(websocket: WebSocket, message: dict):
              await kick_api.disconnect_kick_chat() # Call the async function
 
         elif msg_type == "select_random_viewers":
-            # This is now handled by the POST endpoint in twitch_api
-            # We could trigger it via WS, but using the endpoint might be simpler
-            logger.info("Received 'select_random_viewers' via WS. Frontend should use POST /api/twitch/select-viewers instead.")
-            # Optionally, proxy the request to the endpoint internally if needed
-            await globals.manager.send_personal_message(json.dumps({"type": "error", "data": {"message": "Use POST /api/twitch/select-viewers endpoint"}}), websocket)
+            count = msg_data.get("count", 1)
+            use_raffle = msg_data.get("use_raffle", False)
+            platform = msg_data.get("platform", "twitch")
+
+            logger.info(f"Selecting {count} random viewers from {platform} with use_raffle={use_raffle}")
+
+            if platform.lower() == "kick":
+                if not config.kick_chat_connected:
+                    await globals.manager.send_personal_message(json.dumps({
+                        "type": "error",
+                        "data": {"message": "Not connected to Kick chat"}
+                    }), websocket)
+                    return
+
+                # Select random viewers from Kick chat
+                selected_viewers = await kick_api.select_random_kick_viewers(count, use_raffle)
+                if selected_viewers:
+                    # Update global selected viewers list
+                    config.selected_viewers = selected_viewers
+                    # Broadcast the selected viewers
+                    await globals.manager.broadcast(json.dumps({
+                        "type": "selected_viewers_update",
+                        "data": {"selected_viewers": selected_viewers}
+                    }))
+            else:  # Default to Twitch
+                # This is handled by the POST endpoint in twitch_api
+                logger.info("Twitch viewer selection should use POST /api/twitch/select-viewers endpoint.")
+                await globals.manager.send_personal_message(json.dumps({
+                    "type": "error",
+                    "data": {"message": "Use POST /api/twitch/select-viewers endpoint for Twitch"}
+                }), websocket)
 
 
         elif msg_type == "trigger_speak_selected":
@@ -139,6 +165,14 @@ async def handle_ws_message(websocket: WebSocket, message: dict):
             logger.warning("TTS triggering not yet implemented.")
             # Example: await audio_utils.speak_messages_for_selected_viewers()
             await globals.manager.send_personal_message(json.dumps({"type": "info", "data": {"message": "TTS triggering not implemented"}}), websocket)
+
+        elif msg_type == "clear_raffle_entries":
+            logger.info("Clearing raffle entries")
+            config.entered_users.clear()
+            await globals.manager.broadcast(json.dumps({
+                "type": "raffle_entries_cleared",
+                "data": {"message": "Raffle entries cleared"}
+            }))
 
         # --- Handle Control Messages for Kick Overlay ---
         elif msg_type == "control_kick_overlay":
@@ -201,6 +235,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 "twitch_channel": config.selected_channel, # Assuming this holds twitch channel
                 "kick_channel": config.kick_channel_name, # Assuming this holds kick channel
                 "kick_connected": config.kick_chat_connected, # Add kick connection status
+                "raffle_entries_count": len(config.entered_users), # Add raffle entries count
                 # TODO: Add twitch_connected status if implemented
             }
         }

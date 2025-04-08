@@ -85,3 +85,30 @@ li {
     color: red;
     font-weight: bold;
 }
+
+.selection-mode {
+    background-color: #f0f0f0;
+    padding: 10px;
+    margin-bottom: 15px;
+    border-radius: 5px;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.selection-mode label {
+    margin-right: 10px;
+}
+
+#raffle-entries-count {
+    font-weight: bold;
+    color: #007bff;
+    margin-top: 10px;
+}
+
+/* Styling for emote images */
+.chat-emote {
+    height: 1.2em;
+    vertical-align: middle;
+    margin: 0 2px;
+}

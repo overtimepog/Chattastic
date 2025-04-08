@@ -3,6 +3,7 @@ import datetime
 import json
 import asyncio
 import os
+import random
 from queue import Queue
 # Assuming config.py and globals.py exist and are configured
 import config
@@ -50,7 +51,7 @@ def load_kick_tokens():
 async def get_all_username_emotes(username):
     """
     Download all emote images for a given username from Kick using only Playwright and Playwright stealth.
-    
+
     Steps:
       1. Navigate to https://kick.com/emotes/{username} and extract JSON data.
       2. For every emote in the JSON, construct the image URL.
@@ -80,16 +81,16 @@ async def get_all_username_emotes(username):
             args=['--no-sandbox', '--disable-setuid-sandbox']
         )
         temp_page = await temp_browser.new_page()
-        
+
         # Apply stealth to the page before navigation
         await stealth_async(temp_page)
-        
+
         # Navigate to the emotes page
         emotes_url = f"https://kick.com/emotes/{username}"
         logger.info(f"Navigating to {emotes_url}")
         await temp_page.goto(emotes_url, wait_until="load", timeout=60000)
         await temp_page.wait_for_timeout(5000)  # Wait a bit for any JS processing
-        
+
         # Extract the JSON response from the body text
         body_text = await temp_page.inner_text("body")
         try:
@@ -181,7 +182,7 @@ async def get_all_username_emotes(username):
                 logger.debug(f"Error stopping temporary playwright instance: {e_pw}")
     return None
 
-    
+
 async def get_kick_channel_id(username):
     """Get Kick channel ID using a TEMPORARY Playwright instance with stealth to handle Cloudflare."""
     logger.info(f"Attempting to get channel ID for '{username}' using Playwright + Stealth...")
@@ -562,6 +563,114 @@ async def poll_messages(channel_name):
     logger.info(f"Stopped Kick chat DOM polling for channel: {channel_name}")
 
 
+async def handle_enter_command(username):
+    """Handle the !enter command for Kick chat."""
+    if username not in config.entered_users:
+        config.entered_users.append(username)
+        logger.info(f"Raffle entry from Kick: {username}")
+        # Broadcast raffle entry confirmation
+        await broadcast_raffle_entry(username)
+        return True
+    return False
+
+
+async def broadcast_raffle_entry(username):
+    """Broadcast a raffle entry to all connected clients."""
+    entry_data = {
+        "type": "raffle_entry",
+        "data": {
+            "user": username,
+            "platform": "kick",
+            "total_entries": len(config.entered_users)
+        }
+    }
+    await globals.manager.broadcast(json.dumps(entry_data))
+
+
+async def get_active_kick_viewers():
+    """Get a list of active viewers from Kick chat messages."""
+    if not config.kick_chat_connected or not config.kick_chat_messages:
+        logger.warning("Cannot get active Kick viewers: Not connected or no messages")
+        return []
+
+    # Extract unique usernames from recent chat messages
+    unique_viewers = set()
+    for msg in config.kick_chat_messages:
+        if "user" in msg and msg["user"] != "System":
+            unique_viewers.add(msg["user"])
+
+    logger.info(f"Found {len(unique_viewers)} active Kick viewers")
+    return list(unique_viewers)
+
+
+async def select_random_kick_viewers(count=1, use_raffle=False):
+    """Select random viewers from Kick chat.
+
+    Args:
+        count: Number of viewers to select
+        use_raffle: If True, select from raffle entries, otherwise from active viewers
+
+    Returns:
+        List of selected viewer usernames
+    """
+    if use_raffle:
+        # Select from raffle entries
+        if not config.entered_users:
+            logger.warning("No raffle entries to select from")
+            await broadcast_error("No raffle entries to select from")
+            return []
+
+        if len(config.entered_users) < count:
+            logger.warning(f"Not enough raffle entries ({len(config.entered_users)}) to select {count} viewers")
+            await broadcast_error(f"Not enough raffle entries ({len(config.entered_users)}) to select {count} viewers")
+            count = len(config.entered_users)
+
+        try:
+            winners = random.sample(config.entered_users, count)
+            logger.info(f"Selected {len(winners)} winners from raffle entries: {winners}")
+            # Clear raffle entries after selection
+            config.entered_users.clear()
+            await globals.manager.broadcast(json.dumps({
+                "type": "raffle_entries_cleared",
+                "data": {"message": "Raffle entries cleared after selection"}
+            }))
+            return winners
+        except Exception as e:
+            logger.error(f"Error selecting raffle winners: {e}")
+            await broadcast_error(f"Error selecting raffle winners: {str(e)}")
+            return []
+    else:
+        # Select from active viewers
+        active_viewers = await get_active_kick_viewers()
+        if not active_viewers:
+            logger.warning("No active Kick viewers to select from")
+            await broadcast_error("No active Kick viewers to select from")
+            return []
+
+        if len(active_viewers) < count:
+            logger.warning(f"Not enough active viewers ({len(active_viewers)}) to select {count} viewers")
+            await broadcast_error(f"Not enough active viewers ({len(active_viewers)}) to select {count} viewers")
+            count = len(active_viewers)
+
+        try:
+            selected = random.sample(active_viewers, count)
+            logger.info(f"Selected {len(selected)} random Kick viewers: {selected}")
+            return selected
+        except Exception as e:
+            logger.error(f"Error selecting random Kick viewers: {e}")
+            await broadcast_error(f"Error selecting random Kick viewers: {str(e)}")
+            return []
+
+
+async def broadcast_error(message):
+    """Broadcast an error message to all connected clients."""
+    error_data = {
+        "type": "error",
+        "data": {"message": message}
+    }
+    await globals.manager.broadcast(json.dumps(error_data))
+
+
 async def stream_messages(channel_name):
     """Process messages from the queue and broadcast them."""
     # (Implementation remains the same as the previous good version)
@@ -582,6 +691,10 @@ async def stream_messages(channel_name):
                     logger.debug(f"Skipping streaming message index {msg.get('data_index')} due to missing sender/content/emotes.")
                     message_queue.task_done()
                     continue
+
+                # Check for !enter command
+                if content.strip().lower() == "!enter":
+                    await handle_enter_command(sender)
 
                 message_data = {
                     "type": "kick_chat_message",

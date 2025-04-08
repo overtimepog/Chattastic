@@ -35,7 +35,7 @@
                 // console.log('Received message:', message); // For debugging
 
                 if (message.type === 'kick_chat_message' && message.data) { // Changed type check
-                    addChatMessage(message.data.user, message.data.text); // Changed data fields
+                    addChatMessage(message.data.user, message.data.text, message.data.emotes); // Added emotes parameter
                 } else if (message.type === 'kick_overlay_command' && message.data) {
                     handleCommand(message.data);
                 }
@@ -59,7 +59,7 @@
         };
     }
 
-    function addChatMessage(sender, messageText) {
+    function addChatMessage(sender, messageText, emotes = []) {
         if (!chatContainer) return;
 
         const messageElement = document.createElement('div');
@@ -67,17 +67,57 @@
 
         const senderElement = document.createElement('strong');
         senderElement.textContent = sender + ':'; // Add colon after sender
-
-        // Sanitize message text slightly (prevent basic HTML injection)
-        const messageTextNode = document.createTextNode(' ' + messageText); // Add space after sender
-
         messageElement.appendChild(senderElement);
-        messageElement.appendChild(messageTextNode);
+
+        // Add a space after the sender
+        messageElement.appendChild(document.createTextNode(' '));
+
+        // Process message text and replace emotes with images
+        if (emotes && emotes.length > 0) {
+            // Create a map of emote names to their URLs for quick lookup
+            const emoteMap = {};
+            emotes.forEach(emote => {
+                if (emote.name && emote.url) {
+                    emoteMap[emote.name] = emote.url;
+                }
+            });
+
+            // Split the message by emote placeholders
+            const parts = messageText.split(/\[emote:([^\]]+)\]/);
+
+            for (let i = 0; i < parts.length; i++) {
+                if (i % 2 === 0) {
+                    // Even indices are regular text
+                    if (parts[i]) {
+                        messageElement.appendChild(document.createTextNode(parts[i]));
+                    }
+                } else {
+                    // Odd indices are emote names
+                    const emoteName = parts[i];
+                    const emoteUrl = emoteMap[emoteName];
+
+                    if (emoteUrl) {
+                        // Create an image element for the emote
+                        const img = document.createElement('img');
+                        img.src = emoteUrl;
+                        img.alt = emoteName;
+                        img.title = emoteName;
+                        img.className = 'chat-emote';
+                        img.style.height = '1.2em'; // Set a reasonable height
+                        img.style.verticalAlign = 'middle';
+                        messageElement.appendChild(img);
+                    } else {
+                        // Fallback if emote URL not found
+                        messageElement.appendChild(document.createTextNode(`[${emoteName}]`));
+                    }
+                }
+            }
+        } else {
+            // No emotes, just add the text
+            messageElement.appendChild(document.createTextNode(messageText));
+        }
 
         chatContainer.appendChild(messageElement);
-
-        // Scroll to bottom (optional, might not be needed if OBS source scrolls)
-        // chatContainer.scrollTop = chatContainer.scrollHeight;
 
         // Enforce message limit
         while (chatContainer.children.length > messageLimit) {

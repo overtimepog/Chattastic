@@ -36,7 +36,14 @@
 
     <div id="viewer-section">
         <h2>Viewers</h2>
-        <label for="viewer-count-select">Select Viewers:</label>
+        <div class="selection-mode">
+            <label>Selection Mode:</label>
+            <input type="radio" id="random-mode" name="selection-mode" value="random" checked>
+            <label for="random-mode">Random Viewers</label>
+            <input type="radio" id="raffle-mode" name="selection-mode" value="raffle">
+            <label for="raffle-mode">Raffle (!enter)</label>
+        </div>
+        <label for="viewer-count-select">Number of Viewers:</label>
         <select id="viewer-count-select">
             <option value="1">1</option>
             <option value="2">2</option>
@@ -44,7 +51,9 @@
             <option value="4">4</option>
             <option value="5">5</option>
         </select>
-        <button id="select-random-viewers-btn">Select Random Viewers</button>
+        <button id="select-random-viewers-btn">Select Viewers</button>
+        <button id="clear-raffle-entries-btn">Clear Raffle Entries</button>
+        <p id="raffle-entries-count">Raffle Entries: 0</p>
         <h3>Selected Viewers:</h3>
         <ul id="selected-viewers-list">
             <!-- Selected viewers will be listed here -->
