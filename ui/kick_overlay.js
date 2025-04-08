@@ -79,11 +79,13 @@
             emotes.forEach(emote => {
                 if (emote.name && emote.url) {
                     emoteMap[emote.name] = emote.url;
+                    // We now have emote.id available if needed for future enhancements
                 }
             });
 
             // Split the message by emote placeholders
-            const parts = messageText.split(/\[emote:([^\]]+)\]/);
+            // Format is [emote:name|id] or older format [emote:name]
+            const parts = messageText.split(/\[emote:([^\]|]+)(?:\|([^\]]+))?\]/);
 
             for (let i = 0; i < parts.length; i++) {
                 if (i % 2 === 0) {
@@ -92,8 +94,11 @@
                         messageElement.appendChild(document.createTextNode(parts[i]));
                     }
                 } else {
-                    // Odd indices are emote names
+                    // Odd indices are emote names, followed by optional emote IDs
                     const emoteName = parts[i];
+                    const emoteId = parts[i+1]; // This will be undefined for old format [emote:name]
+                    i += emoteId ? 1 : 0; // Skip the next part if we found an ID
+
                     const emoteUrl = emoteMap[emoteName];
 
                     if (emoteUrl) {

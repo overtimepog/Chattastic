@@ -398,9 +398,10 @@ def _parse_kick_message_html(html_content: str):
                 if img_tag:
                     emote_name = img_tag.get('alt')
                     emote_url = img_tag.get('src')
+                    emote_id = emote_url.split('/emotes/')[1].split('/')[0]
                     if emote_name:
-                        message_parts.append(f"[emote:{emote_name}]") # Placeholder in text
-                        emotes.append({"name": emote_name, "url": emote_url})
+                        message_parts.append(f"[emote:{emote_name}|{emote_id}]") # Placeholder in text with ID
+                        emotes.append({"name": emote_name, "url": emote_url, "id": emote_id}) # Include ID in emotes data
                 else:
                     # Append other tag text content if necessary, though usually emotes are the main tags
                     message_parts.append(element.get_text())

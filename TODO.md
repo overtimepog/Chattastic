@@ -7,6 +7,3 @@
 
    replace the text insatances of emojis ie. [emote:name], with the actual corrisponding image in the webui and overlay, in any way possible
    Related Files: api/kick.py, the whole ui folder, app.py
-
-   Do something more here, retry, log, etc.
-   Ralated Files: api/kick.py:210-217
