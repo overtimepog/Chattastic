@@ -5,17 +5,26 @@ import asyncio
 import os
 import random
 from queue import Queue
+from collections import deque # Added for proxy queue
+import itertools # Added for cycling proxies
 # Assuming config.py and globals.py exist and are configured
 import config
+from config import pw_proxy_config # Import the new proxy config
 import globals # Import globals to access kick_emotes
 import logging
 from bs4 import BeautifulSoup, Tag # Import BeautifulSoup
+import stealth_requests as requests # Import stealth_requests
+import requests as standard_requests # Import standard requests for exceptions, Timeout
 
 # Set up logging
 # logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s') # Example basic config
 logger = logging.getLogger(__name__)
 
-# Import Playwright’s asynchronous API and stealth module
+# --- Proxy Management ---
+# Using single proxy URL from config.py
+# --- End Proxy Management ---
+
+# Import Playwright’s asynchronous API and stealth module (still needed for chat scraping)
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError, Error as PlaywrightError
 from playwright_stealth import stealth_async
 
@@ -33,6 +42,8 @@ polling_task = None
 streaming_task = None
 # --- Globals End ---
 
+# Removed get_zenrows_browser function as stealth_requests handles this internally
+
 def load_kick_tokens():
     """Load Kick authentication tokens from file."""
     token_path = getattr(config, 'KICK_TOKEN_FILE', 'kick_tokens.json') # Use default if not in config
@@ -46,11 +57,12 @@ def load_kick_tokens():
     logger.warning(f"Token file not found at {token_path}")
     return None
 
-# --- Playwright-based API Calls (Necessary due to Cloudflare) ---
+# --- API Calls using stealth_requests (to handle Cloudflare/fingerprinting) ---
+# Note: These calls now use stealth_requests directly without the proxy wrapper.
 
 async def get_all_username_emotes(username):
     """
-    Download all emote images for a given username from Kick using only Playwright and Playwright stealth.
+    Download all emote images for a given username from Kick using stealth_requests.
 
     Steps:
       1. Navigate to https://kick.com/emotes/{username} and extract JSON data.
@@ -58,7 +70,7 @@ async def get_all_username_emotes(username):
       3. Use Playwright’s request API to fetch the image and save it in a folder named "emote_cache/{username}_emotes".
       4. Populate globals.kick_emotes with {"emoteName": "/emotes/{username}_emotes/filename.jpg"}
     """
-    logger.info(f"Starting to get emotes for username: {username}")
+    logger.info(f"Starting to get emotes for username: {username} using stealth_requests")
 
     # Clear previous emotes for this user from the global dict
     # This assumes emotes are user-specific and we want fresh data
@@ -70,34 +82,13 @@ async def get_all_username_emotes(username):
         del globals.kick_emotes[key]
     logger.info(f"Cleared previous emotes for {username} from globals.kick_emotes")
 
-    temp_playwright = None
-    temp_browser = None
-    temp_page = None
     try:
-        # Start a temporary Playwright instance
-        temp_playwright = await async_playwright().start()
-        temp_browser = await temp_playwright.chromium.launch(
-            headless=True,
-            args=['--no-sandbox', '--disable-setuid-sandbox']
-        )
-        temp_page = await temp_browser.new_page()
-
-        # Apply stealth to the page before navigation
-        await stealth_async(temp_page)
-
-        # Navigate to the emotes page
+        # Fetch the emotes list JSON using stealth_requests directly
         emotes_url = f"https://kick.com/emotes/{username}"
-        logger.info(f"Navigating to {emotes_url}")
-        await temp_page.goto(emotes_url, wait_until="load", timeout=60000)
-        await temp_page.wait_for_timeout(5000)  # Wait a bit for any JS processing
-
-        # Extract the JSON response from the body text
-        body_text = await temp_page.inner_text("body")
-        try:
-            data = json.loads(body_text)
-        except json.JSONDecodeError as json_err:
-            logger.error(f"JSON decoding failed for {username} emotes page: {json_err}")
-            return None
+        logger.info(f"Fetching emotes list from {emotes_url} using stealth_requests")
+        resp = await asyncio.to_thread(requests.get, emotes_url, timeout=30)
+        resp.raise_for_status() # Check for HTTP errors
+        data = resp.json()
 
         # Define base cache directory and user-specific directory
         base_emote_dir = "emote_cache"
@@ -120,221 +111,121 @@ async def get_all_username_emotes(username):
                         continue
                     # Construct the fullsize image URL
                     image_url = f"https://files.kick.com/emotes/{emote_id}/fullsize"
-                    logger.info(f"Downloading emote '{emote_name}' from {image_url}")
+                    logger.info(f"Downloading emote '{emote_name}' from {image_url} using stealth_requests")
                     try:
-                        # Use Playwright's request API to fetch the image
-                        response = await temp_page.request.get(image_url)
-                        if response.ok:
-                            image_bytes = await response.body()
-                            # Determine file extension (basic check, could be improved)
-                            content_type = response.headers.get('content-type', '').lower()
-                            if 'image/png' in content_type:
-                                file_ext = ".png"
-                            elif 'image/gif' in content_type:
-                                file_ext = ".gif"
-                            else: # Default to jpg
-                                file_ext = ".jpg"
+                        # Use stealth_requests directly to fetch the image
+                        img_resp = await asyncio.to_thread(requests.get, image_url, timeout=30)
+                        img_resp.raise_for_status() # Check for HTTP errors
+                        image_bytes = img_resp.content
+                        # Determine file extension (basic check, could be improved)
+                        content_type = img_resp.headers.get('content-type', '').lower()
+                        if 'image/png' in content_type:
+                            file_ext = ".png"
+                        elif 'image/gif' in content_type:
+                            file_ext = ".gif"
+                        else: # Default to jpg
+                            file_ext = ".jpg"
 
-                            # Use the actual emote name for the filename, sanitized
-                            safe_name = "".join(c if c.isalnum() or c in ('_', '-') else '_' for c in emote_name).strip()
-                            file_name = f"{safe_name}{file_ext}"
-                            file_path = os.path.join(download_dir, file_name)
+                        # Use the actual emote name for the filename, sanitized
+                        safe_name = "".join(c if c.isalnum() or c in ('_', '-') else '_' for c in emote_name).strip()
+                        file_name = f"{safe_name}{file_ext}"
+                        file_path = os.path.join(download_dir, file_name)
 
-                            with open(file_path, "wb") as f:
-                                f.write(image_bytes)
-                            logger.info(f"Saved emote '{emote_name}' image to {file_path}")
+                        with open(file_path, "wb") as f:
+                            f.write(image_bytes)
+                        logger.info(f"Saved emote '{emote_name}' image to {file_path}")
 
-                            # Store the mapping in globals using the web-accessible path
-                            web_path = f"/emotes/{username}_emotes/{file_name}"
-                            globals.kick_emotes[emote_name] = web_path
-                            emotes_found_count += 1
-                        else:
-                            logger.error(f"Failed to download image for emote '{emote_name}'. HTTP status: {response.status}")
-                    except Exception as download_err:
-                        logger.error(f"Error downloading or saving emote '{emote_name}': {str(download_err)}")
+                        # Store the mapping in globals using the web-accessible path
+                        web_path = f"/emotes/{username}_emotes/{file_name}"
+                        globals.kick_emotes[emote_name] = web_path
+                        emotes_found_count += 1
+                    except (standard_requests.exceptions.RequestException, standard_requests.exceptions.Timeout) as download_err:
+                        # Log error if direct request fails
+                        logger.error(f"Failed to download emote '{emote_name}' using stealth_requests: {str(download_err)}")
+                    except IOError as save_err:
+                        logger.error(f"Error saving emote '{emote_name}' image: {str(save_err)}")
+                    except Exception as other_err: # Catch other potential errors (e.g., file system)
+                        logger.error(f"Unexpected error processing emote '{emote_name}': {str(other_err)}")
 
         logger.info(f"Finished downloading {emotes_found_count} emotes for username: {username}")
         logger.debug(f"Current globals.kick_emotes: {globals.kick_emotes}") # Log the result for debugging
         return True
 
-    except PlaywrightTimeoutError as e:
-        logger.error(f"Timeout while loading emotes page for {username}: {str(e)}")
-    except PlaywrightError as e:
-        logger.error(f"Playwright error while getting emotes for {username}: {str(e)}")
+    except (standard_requests.exceptions.RequestException, standard_requests.exceptions.Timeout) as req_err:
+        # Log error if direct request fails for the main list
+        logger.error(f"Failed to fetch emotes list for {username} using stealth_requests: {str(req_err)}")
+    except json.JSONDecodeError as json_err:
+        logger.error(f"JSON decoding failed for {username} emotes list: {json_err}. Response text: {resp.text[:200] if 'resp' in locals() and resp else 'N/A'}")
+    except IOError as dir_err:
+        logger.error(f"Error creating/accessing emote directory for {username}: {str(dir_err)}")
     except Exception as e:
         logger.exception(f"Unexpected error in get_all_username_emotes for {username}: {str(e)}")
-    finally:
-        # Clean up temporary Playwright resources
-        if temp_page:
-            try:
-                await temp_page.close()
-            except Exception as e_pg:
-                logger.debug(f"Error closing temporary page: {e_pg}")
-        if temp_browser:
-            try:
-                await temp_browser.close()
-            except Exception as e_br:
-                logger.debug(f"Error closing temporary browser: {e_br}")
-        if temp_playwright:
-            try:
-                await temp_playwright.stop()
-            except Exception as e_pw:
-                logger.debug(f"Error stopping temporary playwright instance: {e_pw}")
-    return None
+
+    return None # Return None on failure
 
 
 async def get_kick_channel_id(username):
-    """Get Kick channel ID using a TEMPORARY Playwright instance with stealth to handle Cloudflare."""
-    logger.info(f"Attempting to get channel ID for '{username}' using Playwright + Stealth...")
-    temp_playwright = None
-    temp_browser = None
-    temp_page = None
+    """Get Kick channel ID using stealth_requests to handle Cloudflare."""
+    logger.info(f"Attempting to get channel ID for '{username}' using stealth_requests...")
     api_url = f"https://kick.com/api/v2/channels/{username}"
+    headers = {'Accept': 'application/json'}
 
     try:
-        temp_playwright = await async_playwright().start()
-        # Launch temporary browser for this specific task
-        temp_browser = await temp_playwright.chromium.launch(
-             headless=True, # Keep headless unless debugging
-             args=['--no-sandbox', '--disable-setuid-sandbox']
-        )
-        temp_page = await temp_browser.new_page()
+        # Use stealth_requests directly to fetch the channel data
+        logger.info(f"Fetching channel data from {api_url} using stealth_requests")
+        resp = await asyncio.to_thread(requests.get, api_url, headers=headers, timeout=30)
+        resp.raise_for_status() # Check for HTTP errors
+        data = resp.json()
 
-        # *** Apply stealth BEFORE navigation ***
-        await stealth_async(temp_page)
-        logger.info(f"Stealth applied to temporary page for {username} ID lookup.")
-
-        await temp_page.goto(api_url, wait_until="load", timeout=60000) # 60s timeout for navigation
-
-        # Wait needed for potential Cloudflare JS execution or redirects
-        await temp_page.wait_for_timeout(5000) # Wait 5 seconds for JS challenges
-
-        # Check final URL in case of redirects
-        final_url = temp_page.url
-        if final_url != api_url and "challenges.cloudflare.com" in final_url:
-             logger.error(f"Cloudflare challenge persisted for {username} at {api_url}. Failed to bypass.")
-             #TODO: Do something more, retry, log, etc.
-             return None
-
-        # Attempt to get page content
-        content = await temp_page.content() # Get full HTML/content
-
-        # Look for JSON within the content (sometimes it's in <pre> or body directly)
-        body_text = await temp_page.inner_text("body") # More reliable for API endpoints
-        if not body_text:
-             logger.warning(f"No response body content found for username: {username} at {api_url}")
-             # Log content for debugging if needed
-             # logger.debug(f"Full page content for {username}:\n{content[:500]}...")
-             return None
-
-        # Check if it's the Cloudflare challenge page HTML
-        if "<title>Just a moment...</title>" in content or "challenges.cloudflare.com" in content:
-            logger.warning(f"Cloudflare challenge detected for {username} at {api_url} even after stealth.")
-            # Optionally add more sophisticated waiting/interaction here if needed
+        channel_id = data.get("id")
+        if not channel_id:
+            logger.warning(f"Channel ID key 'id' not found in JSON for username: {username}. Data: {data}")
             return None
 
-        logger.debug(f"Raw body text for {username} channel ID: {body_text[:200]}...") # Log beginning of response
+        logger.info(f"Found channel ID for {username}: {channel_id}")
+        return str(channel_id)
 
-        try:
-            data = json.loads(body_text)
-            channel_id = data.get("id")
-            if not channel_id:
-             logger.warning(f"Channel ID key 'id' not found in JSON for username: {username}. Data: {data}")
-             return None
-            logger.info(f"Found channel ID via Playwright for {username}: {channel_id}")
-            return str(channel_id)
-        except json.JSONDecodeError:
-            logger.error(f"Failed to parse JSON from response body for {username}. Body was: {body_text[:500]}...")
-            return None
-
-    except PlaywrightTimeoutError as e:
-        logger.error(f"Playwright timeout getting channel ID for {username}: {str(e)}")
+    except (standard_requests.exceptions.RequestException, standard_requests.exceptions.Timeout) as req_err:
+        logger.error(f"Failed to get channel ID for {username} using stealth_requests: {str(req_err)}")
         return None
-    except PlaywrightError as e:
-        logger.error(f"Playwright error getting channel ID for {username}: {str(e)}")
-        if "Target closed" in str(e):
-            logger.error("Browser context might have been closed unexpectedly.")
+    except json.JSONDecodeError as json_err:
+        logger.error(f"Failed to parse JSON for {username} channel ID: {json_err}. Response text: {resp.text[:500] if 'resp' in locals() and resp else 'N/A'}...")
         return None
     except Exception as e:
-        logger.exception(f"Unexpected error getting channel ID for {username}: {str(e)}") # Use exception for traceback
+        logger.exception(f"Unexpected error getting channel ID for {username}: {str(e)}")
         return None
-    finally:
-        # *** Ensure temporary resources are closed ***
-        if temp_page:
-            try: await temp_page.close()
-            except Exception as e_pg: logger.debug(f"Minor error closing temp page: {e_pg}")
-        if temp_browser:
-            try: await temp_browser.close()
-            except Exception as e_br: logger.debug(f"Minor error closing temp browser: {e_br}")
-        if temp_playwright: # Only stop if we started it here (should always be true in this func)
-             try: await temp_playwright.stop()
-             except Exception as e_pw: logger.debug(f"Minor error stopping temp playwright: {e_pw}")
 
 
 async def get_latest_subscriber(channel_id):
-    """Get the latest Kick subscriber using a TEMPORARY Playwright instance with stealth."""
-    logger.info(f"Attempting to get latest subscriber for channel ID {channel_id} using Playwright + Stealth...")
-    temp_playwright = None
-    temp_browser = None
-    temp_page = None
+    """Get the latest Kick subscriber using stealth_requests."""
+    logger.info(f"Attempting to get latest subscriber for channel ID {channel_id} using stealth_requests...")
     api_url = f"https://kick.com/api/v2/channels/{channel_id}/subscribers/last"
+    headers = {'Accept': 'application/json'}
 
     try:
-        temp_playwright = await async_playwright().start()
-        temp_browser = await temp_playwright.chromium.launch(
-             headless=True,
-             args=['--no-sandbox', '--disable-setuid-sandbox']
-        )
-        temp_page = await temp_browser.new_page()
-        await stealth_async(temp_page) # Apply stealth before navigating
-        logger.info(f"Stealth applied to temporary page for latest subscriber lookup (Channel {channel_id}).")
+        # Use stealth_requests directly to fetch the subscriber data
+        logger.info(f"Fetching subscriber data from {api_url} using stealth_requests")
+        resp = await asyncio.to_thread(requests.get, api_url, headers=headers, timeout=30)
+        resp.raise_for_status() # Check for HTTP errors
+        data = resp.json()
 
-        await temp_page.goto(api_url, wait_until="load", timeout=60000)
-        await temp_page.wait_for_timeout(3000) # Short wait for potential JS
-
-        content = await temp_page.content()
-        if "<title>Just a moment...</title>" in content or "challenges.cloudflare.com" in content:
-            logger.warning(f"Cloudflare challenge detected for latest subscriber API (Channel {channel_id}).")
+        if "data" in data and data["data"]: # Check if data exists and is not empty/null
+            logger.info(f"Found latest subscriber data for channel {channel_id}")
+            return data["data"]
+        else:
+            logger.warning(f"No subscriber 'data' key found in JSON response for channel: {channel_id}. Data: {data}")
             return None
 
-        body_text = await temp_page.inner_text("body")
-        if not body_text:
-             logger.warning(f"No response body content found for latest subscriber API (Channel {channel_id})")
-             return None
-
-        try:
-            data = json.loads(body_text)
-            if "data" in data and data["data"]: # Check if data exists and is not empty/null
-                logger.info(f"Found latest subscriber data for channel {channel_id}")
-                return data["data"]
-            else:
-             logger.warning(f"No subscriber 'data' key found in JSON response for channel: {channel_id}. Data: {data}")
-             return None
-        except json.JSONDecodeError:
-            logger.error(f"Failed to parse JSON for latest subscriber (Channel {channel_id}). Body was: {body_text[:500]}...")
-            return None
-
-    except PlaywrightTimeoutError as e:
-        logger.error(f"Playwright timeout getting latest subscriber for {channel_id}: {str(e)}")
+    except (standard_requests.exceptions.RequestException, standard_requests.exceptions.Timeout) as req_err:
+        logger.error(f"Failed to get latest subscriber for {channel_id} using stealth_requests: {str(req_err)}")
         return None
-    except PlaywrightError as e:
-        logger.error(f"Playwright error getting latest subscriber for {channel_id}: {str(e)}")
+    except json.JSONDecodeError as json_err:
+        logger.error(f"Failed to parse JSON for latest subscriber (Channel {channel_id}): {json_err}. Response text: {resp.text[:500] if 'resp' in locals() and resp else 'N/A'}...")
         return None
     except Exception as e:
         logger.exception(f"Unexpected error getting latest subscriber for {channel_id}: {str(e)}")
         return None
-    finally:
-        # Ensure temporary resources are closed
-        if temp_page:
-            try: await temp_page.close()
-            except Exception as e_pg: logger.debug(f"Minor error closing temp page: {e_pg}")
-        if temp_browser:
-            try: await temp_browser.close()
-            except Exception as e_br: logger.debug(f"Minor error closing temp browser: {e_br}")
-        if temp_playwright:
-            try: await temp_playwright.stop()
-            except Exception as e_pw: logger.debug(f"Minor error stopping temp playwright: {e_pw}")
-# --- End Playwright-based API Calls ---
+# --- End API Calls ---
 
 def _parse_kick_message_html(html_content: str):
     """
@@ -437,24 +328,43 @@ def parse_kick_timestamp(time_str):
     return time_str.strip() # Currently returns as string
 
 
-async def wait_for_selector_with_retry(page, selector, max_retries=5, delay=5, timeout_per_try=60000):
-    """Attempts to wait for a selector with retries and longer timeouts."""
-    # (Implementation remains the same as the previous good version)
+async def wait_for_selector_with_retry(page, selector, max_retries=2, delay=1, timeout_per_try=7000, log_prefix="", channel_name="unknown"):
+    """
+    Attempts to wait for a selector with retries and longer timeouts.
+    Takes a screenshot on timeout.
+    """
     attempt = 1
     last_exception = None
     while attempt <= max_retries:
         try:
-            logger.info(f"Attempt {attempt}: Waiting for selector '{selector}' with timeout {timeout_per_try}ms...")
+            logger.info(f"{log_prefix}Selector wait attempt {attempt}/{max_retries}: Waiting for '{selector}' (timeout: {timeout_per_try}ms)...")
             element = await page.wait_for_selector(selector, timeout=timeout_per_try, state="visible")
-            logger.info(f"Selector '{selector}' found and visible.")
+            logger.info(f"{log_prefix}Selector '{selector}' found and visible.")
             return element # Return the handle if successful
         except PlaywrightTimeoutError as e:
-            logger.warning(f"Attempt {attempt}: Timeout waiting for selector '{selector}'. Retrying in {delay} seconds...")
+            logger.warning(f"{log_prefix}Selector wait attempt {attempt}/{max_retries}: Timeout waiting for '{selector}'.")
             last_exception = e
-            await asyncio.sleep(delay)
+            # --- Take Screenshot on Timeout ---
+            try:
+                # Ensure the page is still usable for screenshot
+                if not page.is_closed():
+                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    safe_selector = selector.replace('#','').replace('.','').replace('[','').replace(']','').replace('=','')[:30] # Basic sanitize
+                    screenshot_filename = f"debug_screenshots/{timestamp}_{channel_name}_attempt{attempt}_timeout_{safe_selector}.png"
+                    await page.screenshot(path=screenshot_filename, full_page=True)
+                    logger.info(f"{log_prefix}Saved screenshot on timeout to: {screenshot_filename}")
+                else:
+                    logger.warning(f"{log_prefix}Page was closed, cannot take screenshot for timeout on attempt {attempt}.")
+            except Exception as ss_err:
+                logger.error(f"{log_prefix}Failed to take or save screenshot on timeout: {ss_err}")
+            # --- End Screenshot ---
+
+            if attempt < max_retries:
+                 logger.info(f"{log_prefix}Retrying selector wait in {delay} seconds...")
+                 await asyncio.sleep(delay)
             attempt += 1
         except PlaywrightError as e: # Catch other potential playwright errors
-             logger.error(f"Attempt {attempt}: Playwright error waiting for selector '{selector}': {str(e)}")
+             logger.error(f"{log_prefix}Selector wait attempt {attempt}/{max_retries}: Playwright error waiting for '{selector}': {str(e)}")
              last_exception = e
              if "closed" in str(e).lower(): raise e # Don't retry if context/page is closed
              await asyncio.sleep(delay)
@@ -752,18 +662,16 @@ async def connect_kick_chat(channel_name):
         try: message_queue.get_nowait()
         except: pass
 
-    # --- Get Channel ID (Using Playwright due to Cloudflare) ---
-    logger.info(f"Getting channel ID for: {channel_name} using Playwright...")
-    # Tokens not strictly needed for this endpoint usually, but passing anyway
-    tokens = load_kick_tokens()
-    channel_id = await get_kick_channel_id(channel_name) # Uses the Playwright version now
+    # --- Get Channel ID (Using stealth_requests) ---
+    logger.info(f"Getting channel ID for: {channel_name} using stealth_requests...")
+    channel_id = await get_kick_channel_id(channel_name) # Uses the stealth_requests version now
     if not channel_id:
-        logger.error(f"Could not get Kick channel ID via Playwright for: {channel_name}")
+        logger.error(f"Could not get Kick channel ID via stealth_requests for: {channel_name}")
         await globals.manager.broadcast(json.dumps({
             "type": "error",
             "data": {"message": f"Could not find Kick channel or bypass protection for: {channel_name}"}
         }))
-        return False # Corrected indentation
+        return False
 
     # --- Download Emotes for the Channel ---
     logger.info(f"Attempting to download emotes for channel: {channel_name}")
@@ -802,14 +710,71 @@ async def connect_kick_chat(channel_name):
             driver_page.on("close", lambda: logger.warning("Persistent driver page was closed!")) # Log if page closes unexpectedly
 
 
-        # --- Navigate Persistent Page and Wait ---
+        # --- Navigate Persistent Page and Wait (Using Single Proxy) ---
         chat_url = f"https://kick.com/{channel_name}"
-        logger.info(f"Navigating Persistent Page to {chat_url}...")
-        await driver_page.goto(chat_url, wait_until="load", timeout=90000)
+        connection_successful = False
+        last_pw_exception = None
 
-        logger.info("Waiting for chat messages container (#chatroom-messages)...")
-        await wait_for_selector_with_retry(driver_page, "#chatroom-messages", timeout_per_try=60000)
-        logger.info("Chat messages container found on Persistent Page.")
+        # Proxy config is now imported from config.py
+        log_prefix = f"[Proxy Attempt ({pw_proxy_config['server']})] "
+
+        # Attempt connection using the single proxy (pw_proxy_config is imported)
+        temp_context = None
+        temp_page = None
+        try:
+            # Create a NEW context and page for this attempt
+            logger.info(f"{log_prefix}Creating new browser context with proxy...")
+            # Use the imported pw_proxy_config directly
+            temp_context = await browser_instance_persistent.new_context(proxy=pw_proxy_config)
+            temp_context.on("pageerror", lambda exc: logger.error(f"{log_prefix}Context Page Error: {exc}"))
+            temp_context.on("close", lambda: logger.debug(f"{log_prefix}Context closed."))
+
+            logger.info(f"{log_prefix}Opening new page...")
+            temp_page = await temp_context.new_page()
+            temp_page.on("close", lambda: logger.debug(f"{log_prefix}Page closed."))
+            temp_page.on("crash", lambda: logger.error(f"{log_prefix}Page crashed!"))
+
+            logger.info(f"{log_prefix}Applying stealth...")
+            await stealth_async(temp_page)
+
+            logger.info(f"{log_prefix}Navigating to {chat_url}...")
+            await temp_page.goto(chat_url, wait_until="load", timeout=90000)
+            logger.info(f"{log_prefix}Waiting for page DOM content to be loaded...")
+            await temp_page.wait_for_load_state('domcontentloaded', timeout=60000)
+
+            logger.info(f"{log_prefix}Waiting for chat messages container (#chatroom-messages)...")
+            await wait_for_selector_with_retry(temp_page, "#chatroom-messages", timeout_per_try=15000, log_prefix=log_prefix, channel_name=channel_name) # Increased timeout per try
+
+            logger.info(f"{log_prefix}Connection successful!")
+            # Success! Assign the new page and context to globals
+            # Close previous page if it exists and is different
+            if driver_page and driver_page != temp_page and not driver_page.is_closed():
+                 await driver_page.close()
+            driver_page = temp_page
+            connection_successful = True
+
+        except (PlaywrightTimeoutError, PlaywrightError) as e:
+            logger.error(f"{log_prefix}Playwright connection failed: {type(e).__name__} - {str(e)}")
+            last_pw_exception = e
+            # Clean up the failed context and page
+            if temp_page and not temp_page.is_closed():
+                await temp_page.close()
+            if temp_context and temp_context.pages:
+                 try: await temp_context.close()
+                 except Exception as ce: logger.debug(f"{log_prefix}Minor error closing context on failure: {ce}")
+        except Exception as e:
+             logger.error(f"{log_prefix}Unexpected error during Playwright connection: {e}", exc_info=True)
+             last_pw_exception = e
+             # Clean up context/page
+             if temp_page and not temp_page.is_closed(): await temp_page.close()
+             if temp_context and temp_context.pages:
+                  try: await temp_context.close()
+                  except Exception as ce: logger.debug(f"{log_prefix}Minor error closing context on unexpected failure: {ce}")
+
+        # --- Check final connection status ---
+        if not connection_successful:
+            logger.error(f"Playwright connection failed for {channel_name} using proxy {pw_proxy_config['server']}. Last error: {type(last_pw_exception).__name__ if last_pw_exception else 'N/A'}")
+            raise last_pw_exception or PlaywrightError(f"Failed to connect to {channel_name} using proxy.")
 
         # --- Start Polling and Streaming Tasks ---
         polling_active = True
@@ -831,17 +796,14 @@ async def connect_kick_chat(channel_name):
         logger.info(f"Successfully connected to Kick chat: {channel_name}")
         return True
 
-    except PlaywrightTimeoutError as e:
-        logger.error(f"Connection failed: Timeout waiting for critical element on {channel_name}'s page (Persistent Browser). {e}")
-        await globals.manager.broadcast(json.dumps({"type": "error", "data": {"message": f"Failed to load Kick channel page for {channel_name} (timeout). Is the channel live?"}}))
+    # Outer exception handling for Playwright connection failure
+    except (PlaywrightTimeoutError, PlaywrightError) as e:
+        logger.error(f"Playwright connection failed for {channel_name}: {type(e).__name__} - {str(e)}")
+        error_message = f"Failed to load Kick channel page for {channel_name} using proxy {pw_proxy_config['server']} (timeout or error). Is the channel live or blocked?"
+        await globals.manager.broadcast(json.dumps({"type": "error", "data": {"message": error_message}}))
         await disconnect_kick_chat() # Clean up on failure
         return False
-    except PlaywrightError as e:
-        logger.error(f"Connection failed: Playwright error preparing persistent browser for {channel_name}: {str(e)}")
-        await globals.manager.broadcast(json.dumps({"type": "error", "data": {"message": f"Playwright error connecting to Kick: {str(e)}"}}))
-        await disconnect_kick_chat() # Clean up on failure
-        return False
-    except Exception as e:
+    except Exception as e: # Catch other unexpected errors during setup/connection
         logger.exception(f"Unexpected error during persistent browser setup for {channel_name}: {str(e)}")
         await globals.manager.broadcast(json.dumps({"type": "error", "data": {"message": f"Failed to connect to Kick chat: {str(e)}"}}))
         await disconnect_kick_chat() # Clean up on failure
@@ -888,6 +850,8 @@ async def disconnect_kick_chat():
     config.kick_chat_stream = None
     config.kick_channel_id = None
     config.kick_channel_name = None
+    # Reset the last processed index for message tracking
+    global last_processed_index
     last_processed_index = -1
     polling_task = None
     streaming_task = None

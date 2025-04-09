@@ -25,5 +25,8 @@ playwright-stealth # Added for stealth mode in Playwright
 # dearpygui
 # Removed: flask, flask_socketio
 
+# Stealth Requests for bypassing bot detection
+stealth-requests
+
 # HTML Parsing
 beautifulsoup4

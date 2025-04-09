@@ -1,0 +1,88 @@
+/* Define CSS variables with default values */
+:root {
+    --chat-text-color: #ffffff;
+    --chat-username-color: #a0a0ff;
+    --chat-font-size: 16px;
+    --chat-text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+    --chat-bg-color: rgba(0, 0, 0, 0.5);
+    --chat-padding: 5px;
+    --chat-gap: 5px;
+    --chat-border-radius: 4px;
+    --chat-width: 800px;
+    --chat-height: 600px;
+    --chat-bottom-margin: 10px;
+    --random-animation-duration: 500ms;
+}
+
+/* Basic reset and transparency */
+body {
+    background-color: transparent;
+    margin: 0;
+    padding: 0;
+    font-family: Arial, sans-serif;
+    color: var(--chat-text-color);
+    overflow: hidden;
+    width: 100vw;
+    height: 100vh;
+    box-sizing: border-box;
+}
+
+/* Random container takes full viewport */
+.random-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+/* Message styling */
+.chat-message {
+    background-color: var(--chat-bg-color);
+    padding: var(--chat-padding) 10px;
+    border-radius: var(--chat-border-radius);
+    font-size: var(--chat-font-size);
+    text-shadow: var(--chat-text-shadow);
+    word-wrap: break-word;
+    position: absolute;
+    z-index: 10;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+    max-width: 80%;
+    opacity: 0;
+    transition: opacity var(--random-animation-duration) ease-in-out;
+}
+
+.chat-message.visible {
+    opacity: 1;
+}
+
+.chat-message strong {
+    font-weight: bold;
+    color: var(--chat-username-color);
+    margin-right: 5px;
+}
+
+/* Styling for emote images */
+.chat-emote {
+    height: 1.2em;
+    vertical-align: middle;
+    margin: 0 2px;
+}
+
+/* Animation classes */
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes fadeOut {
+    from { opacity: 1; }
+    to { opacity: 0; }
+}
+
+.fade-in {
+    animation: fadeIn var(--random-animation-duration) ease-in forwards;
+}
+
+.fade-out {
+    animation: fadeOut var(--random-animation-duration) ease-out forwards;
+}

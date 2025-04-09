@@ -380,6 +380,20 @@ async def get_kick_overlay():
         logger.error(f"Error reading ui/kick_overlay.html: {e}")
         return HTMLResponse(content="<html><body><h1>Internal Server Error</h1></body></html>", status_code=500)
 
+# --- Route for Random Overlay ---
+@app.get("/random-overlay", response_class=HTMLResponse)
+async def get_random_overlay():
+    """Serves the HTML page for the random message overlay."""
+    try:
+        with open("ui/random_overlay.html", "r") as f:
+            return HTMLResponse(content=f.read(), status_code=200)
+    except FileNotFoundError:
+        logger.error("ui/random_overlay.html not found.")
+        return HTMLResponse(content="<html><body><h1>Error: random_overlay.html not found</h1></body></html>", status_code=404)
+    except Exception as e:
+        logger.error(f"Error reading ui/random_overlay.html: {e}")
+        return HTMLResponse(content="<html><body><h1>Internal Server Error</h1></body></html>", status_code=500)
+
 # --- Application Startup/Shutdown ---
 @app.on_event("startup")
 async def startup_event():

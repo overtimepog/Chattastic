@@ -31,6 +31,21 @@ kick_channel_name = ""  # Store the current Kick channel name
 kick_chat_messages = []  # Store the Kick chat messages
 kick_chat_connected = False  # Flag to track Kick chat connection status
 
+# --- Proxy Settings ---
+# Proxy configuration
+proxy_server = "https://superproxy.zenrows.com:1338"
+
+# Format the proxy configuration for Playwright
+pw_proxy_config = {
+    "server": proxy_server,
+    "bypass": "localhost",
+    "username": "DkQS3sMDQ9gy",
+    "password": "TGHR6278"
+}
+
+# MAX_REQUEST_RETRIES = 5 # Retries might still be relevant depending on use case
+# MAX_PLAYWRIGHT_RETRIES = 3
+
 # Global variables
 selected_channel = ""
 selected_viewer = ""
