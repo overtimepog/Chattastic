@@ -682,17 +682,15 @@ async def stream_messages(channel_name):
 
 
 def keep_alive_thread_function(interval=1):
-    """Thread function to keep the chat page alive even when minimized.
-
-    This function runs in a separate thread and periodically interacts with the
-    Selenium driver to ensure the chat page stays active and continues to receive
-    new messages, even when the browser window is minimized.
-
-    Args:
-        interval: Time in seconds between keep-alive actions (default: 1)
-    """
+    """Thread function to keep the chat page alive even when minimized."""
     global selenium_driver, keep_alive_active
     logger.info(f"Starting keep-alive thread with interval of {interval} seconds")
+
+    # Track time for periodic refresh
+    last_refresh_time = time.time()
+    refresh_interval = 60  # Refresh page every 60 seconds
+    alert_interval = 15    # Show alert every 15 seconds
+    last_alert_time = time.time()
 
     while keep_alive_active and selenium_driver:
         try:
@@ -701,23 +699,139 @@ def keep_alive_thread_function(interval=1):
                 logger.warning("Keep-alive thread detected invalid driver. Stopping.")
                 break
 
-            # Perform a lightweight action to keep the page active
-            # Scroll slightly to trigger activity without disrupting the view
-            logger.debug("Keep-alive thread performing page interaction")
-            selenium_driver.execute_script("window.scrollBy(0, 1);")
-            time.sleep(0.25)  # Short pause
-            selenium_driver.execute_script("window.scrollBy(0, -1);")
+            current_time = time.time()
 
-            # Alternative: refresh the page if needed (more disruptive but ensures fresh content)
-            # Uncomment if scrolling isn't sufficient
-            # selenium_driver.refresh()
+            # Periodic page refresh to ensure chat stays active
+            if current_time - last_refresh_time >= refresh_interval:
+                try:
+                    logger.info("Performing periodic page refresh to keep chat active")
+                    # Refresh the page
+                    selenium_driver.refresh()
+                    # Wait for chat container to reappear
+                    WebDriverWait(selenium_driver, 10).until(
+                        EC.visibility_of_element_located((By.CSS_SELECTOR, "#chatroom-messages"))
+                    )
+                    last_refresh_time = current_time
+                    logger.info("Page refreshed successfully")
+                except Exception as refresh_err:
+                    logger.error(f"Error during page refresh: {refresh_err}")
 
-            # Sleep until next interval
+            # Use alert trick to force window focus periodically
+            if current_time - last_alert_time >= alert_interval:
+                try:
+                    logger.info("Using alert trick to force window focus")
+                    # Create and accept an alert to force focus
+                    selenium_driver.execute_script('alert("Focus window")')
+                    alert = selenium_driver.switch_to.alert
+                    alert.accept()
+                    last_alert_time = current_time
+                except Exception as alert_err:
+                    logger.warning(f"Error using alert trick: {alert_err}")
+
+            # Execute multiple JavaScript commands to prevent throttling
+            try:
+                # Scroll chat container to trigger activity
+                selenium_driver.execute_script("""
+                    const chatContainer = document.getElementById('chatroom-messages');
+                    if (chatContainer) {
+                        const currentScroll = chatContainer.scrollTop;
+                        chatContainer.scrollTop = currentScroll + 1;
+                        setTimeout(() => chatContainer.scrollTop = currentScroll, 100);
+                    }
+                """)
+
+                # Force window focus and prevent background throttling with more aggressive approach
+                selenium_driver.execute_script("""
+                    // Keep the page active
+                    window.focus();
+                    document.hasFocus = function() { return true; };
+
+                    // Prevent throttling with multiple techniques
+                    if (typeof requestIdleCallback === 'function') {
+                        requestIdleCallback(() => {}, { timeout: 1 });
+                    }
+
+                    // Request animation frame to keep page active
+                    requestAnimationFrame(() => {});
+
+                    // Prevent sleep
+                    if (navigator.wakeLock) {
+                        navigator.wakeLock.request('screen').catch(() => {});
+                    }
+
+                    // Create a dummy audio context to prevent throttling
+                    try {
+                        const AudioContext = window.AudioContext || window.webkitAudioContext;
+                        if (AudioContext && !window._dummyAudioContext) {
+                            window._dummyAudioContext = new AudioContext();
+                        }
+                    } catch(e) {}
+
+                    // Override visibility API to always report visible
+                    Object.defineProperty(document, 'hidden', { value: false, writable: false });
+                    Object.defineProperty(document, 'visibilityState', { value: 'visible', writable: false });
+                    document.dispatchEvent(new Event('visibilitychange'));
+                """)
+
+                # Simulate user interaction with more varied events
+                selenium_driver.execute_script("""
+                    // Create and dispatch multiple events to simulate user activity
+                    const events = [
+                        new MouseEvent('mousemove', {
+                            view: window,
+                            bubbles: true,
+                            cancelable: true,
+                            clientX: Math.random() * window.innerWidth,
+                            clientY: Math.random() * window.innerHeight
+                        }),
+                        new MouseEvent('mousedown', {
+                            view: window,
+                            bubbles: true,
+                            cancelable: true,
+                            clientX: Math.random() * window.innerWidth,
+                            clientY: Math.random() * window.innerHeight
+                        }),
+                        new MouseEvent('mouseup', {
+                            view: window,
+                            bubbles: true,
+                            cancelable: true,
+                            clientX: Math.random() * window.innerWidth,
+                            clientY: Math.random() * window.innerHeight
+                        }),
+                        new KeyboardEvent('keydown', {
+                            key: 'a',
+                            bubbles: true
+                        }),
+                        new KeyboardEvent('keyup', {
+                            key: 'a',
+                            bubbles: true
+                        })
+                    ];
+
+                    // Dispatch all events
+                    events.forEach(evt => document.dispatchEvent(evt));
+
+                    // Also click on a non-interactive element to trigger activity
+                    const nonInteractiveElements = document.querySelectorAll('div:not(button):not(a):not(input)');
+                    if (nonInteractiveElements.length > 0) {
+                        const randomElement = nonInteractiveElements[Math.floor(Math.random() * nonInteractiveElements.length)];
+                        randomElement.dispatchEvent(new MouseEvent('click', {
+                            bubbles: true,
+                            cancelable: true
+                        }));
+                    }
+                """)
+
+            except Exception as js_err:
+                logger.warning(f"JavaScript execution error in keep-alive: {js_err}")
+                # Don't break the loop for JS errors
+
+            # Shorter sleep interval for more frequent interaction
             time.sleep(interval)
 
         except Exception as e:
             logger.error(f"Error in keep-alive thread: {str(e)}")
-            time.sleep(1)  # Wait a bit longer on error before retrying
+            time.sleep(2)  # Slightly longer wait on error
 
     logger.info("Keep-alive thread stopped")
 
@@ -853,19 +967,29 @@ async def connect_kick_chat(channel_name):
         config.kick_chat_connected = True
         config.kick_chat_stream = {"channel_id": channel_id, "channel_name": channel_name}
 
-        # Minimize the browser window after successful connection
-        await asyncio.to_thread(selenium_driver.minimize_window)
-        logger.info("Browser window minimized after successful connection.")
+        # Resize the browser window to 1/4 size instead of minimizing
+        screen_width = await asyncio.to_thread(lambda: selenium_driver.execute_script('return window.screen.width'))
+        screen_height = await asyncio.to_thread(lambda: selenium_driver.execute_script('return window.screen.height'))
 
-        # Start the keep-alive timer thread
+        # Calculate 1/4 size dimensions
+        width = int(screen_width / 2)
+        height = int(screen_height / 2)
+
+        # Set window size and position it in the bottom right corner
+        await asyncio.to_thread(selenium_driver.set_window_size, width, height)
+        await asyncio.to_thread(selenium_driver.set_window_position, screen_width - width, screen_height - height)
+
+        logger.info(f"Browser window resized to 1/4 size ({width}x{height}) and positioned in bottom right corner")
+
+        # Start the keep-alive timer thread with shorter interval
         keep_alive_active = True
         keep_alive_timer = threading.Thread(
             target=keep_alive_thread_function,
-            args=(5,),  # 5-second interval
-            daemon=True  # Make it a daemon thread so it exits when the main program exits
+            args=(1,),  # 1-second interval for more frequent interactions
+            daemon=True
         )
         keep_alive_timer.start()
-        logger.info("Started keep-alive timer thread")
+        logger.info("Started enhanced keep-alive timer thread")
 
         await globals.manager.broadcast(json.dumps({"type": "kick_chat_connected", "data": {"channel": channel_name}}))
         logger.info(f"Successfully connected to Kick chat: {channel_name}")
