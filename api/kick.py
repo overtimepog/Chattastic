@@ -682,15 +682,18 @@ async def stream_messages(channel_name):
 
 
 def keep_alive_thread_function(interval=1):
-    """Thread function to keep the chat page alive even when minimized."""
+    """Thread function to keep the chat page alive even when minimized.
+    Enhanced for Docker/Xvfb environments where window focus works differently."""
     global selenium_driver, keep_alive_active
     logger.info(f"Starting keep-alive thread with interval of {interval} seconds")
 
     # Track time for periodic refresh
     last_refresh_time = time.time()
-    refresh_interval = 60  # Refresh page every 60 seconds
-    alert_interval = 15    # Show alert every 15 seconds
-    last_alert_time = time.time()
+    refresh_interval = 30  # Refresh page every 30 seconds (reduced from 60)
+    # Alert interval is not needed in Docker/Xvfb as there's no real window focus
+    # but we'll keep the variable for code structure
+    last_interaction_time = time.time()
+    interaction_interval = 5  # Interact with the page every 5 seconds
 
     while keep_alive_active and selenium_driver:
         try:
@@ -708,7 +711,7 @@ def keep_alive_thread_function(interval=1):
                     # Refresh the page
                     selenium_driver.refresh()
                     # Wait for chat container to reappear
-                    WebDriverWait(selenium_driver, 10).until(
+                    WebDriverWait(selenium_driver, 15).until(  # Increased timeout for Docker
                         EC.visibility_of_element_located((By.CSS_SELECTOR, "#chatroom-messages"))
                     )
                     last_refresh_time = current_time
@@ -716,30 +719,28 @@ def keep_alive_thread_function(interval=1):
                 except Exception as refresh_err:
                     logger.error(f"Error during page refresh: {refresh_err}")
 
-            # Use alert trick to force window focus periodically
-            if current_time - last_alert_time >= alert_interval:
+            # Regular interaction with the page (instead of alerts which may not work in Docker/Xvfb)
+            if current_time - last_interaction_time >= interaction_interval:
                 try:
-                    logger.info("Using alert trick to force window focus")
-                    # Create and accept an alert to force focus
-                    selenium_driver.execute_script('alert("Focus window")')
-                    alert = selenium_driver.switch_to.alert
-                    alert.accept()
-                    last_alert_time = current_time
-                except Exception as alert_err:
-                    logger.warning(f"Error using alert trick: {alert_err}")
+                    logger.debug("Performing page interaction to maintain activity")
+                    # Instead of alerts, we'll use more reliable DOM interactions
 
-            # Execute multiple JavaScript commands to prevent throttling
+                    # Scroll chat container to trigger activity
+                    selenium_driver.execute_script("""
+                        const chatContainer = document.getElementById('chatroom-messages');
+                        if (chatContainer) {
+                            const currentScroll = chatContainer.scrollTop;
+                            chatContainer.scrollTop = currentScroll + 1;
+                            setTimeout(() => chatContainer.scrollTop = currentScroll, 100);
+                        }
+                    """)
+
+                    last_interaction_time = current_time
+                except Exception as interact_err:
+                    logger.warning(f"Error during page interaction: {interact_err}")
+
+            # Execute JavaScript to prevent throttling - optimized for Docker/Xvfb
             try:
-                # Scroll chat container to trigger activity
-                selenium_driver.execute_script("""
-                    const chatContainer = document.getElementById('chatroom-messages');
-                    if (chatContainer) {
-                        const currentScroll = chatContainer.scrollTop;
-                        chatContainer.scrollTop = currentScroll + 1;
-                        setTimeout(() => chatContainer.scrollTop = currentScroll, 100);
-                    }
-                """)
-
                 # Force window focus and prevent background throttling with more aggressive approach
                 selenium_driver.execute_script("""
                     // Keep the page active
@@ -754,11 +755,6 @@ def keep_alive_thread_function(interval=1):
                     // Request animation frame to keep page active
                     requestAnimationFrame(() => {});
 
-                    // Prevent sleep
-                    if (navigator.wakeLock) {
-                        navigator.wakeLock.request('screen').catch(() => {});
-                    }
-
                     // Create a dummy audio context to prevent throttling
                     try {
                         const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -771,47 +767,12 @@ def keep_alive_thread_function(interval=1):
                     Object.defineProperty(document, 'hidden', { value: false, writable: false });
                     Object.defineProperty(document, 'visibilityState', { value: 'visible', writable: false });
                     document.dispatchEvent(new Event('visibilitychange'));
-                """)
 
-                # Simulate user interaction with more varied events
-                selenium_driver.execute_script("""
-                    // Create and dispatch multiple events to simulate user activity
-                    const events = [
-                        new MouseEvent('mousemove', {
-                            view: window,
-                            bubbles: true,
-                            cancelable: true,
-                            clientX: Math.random() * window.innerWidth,
-                            clientY: Math.random() * window.innerHeight
-                        }),
-                        new MouseEvent('mousedown', {
-                            view: window,
-                            bubbles: true,
-                            cancelable: true,
-                            clientX: Math.random() * window.innerWidth,
-                            clientY: Math.random() * window.innerHeight
-                        }),
-                        new MouseEvent('mouseup', {
-                            view: window,
-                            bubbles: true,
-                            cancelable: true,
-                            clientX: Math.random() * window.innerWidth,
-                            clientY: Math.random() * window.innerHeight
-                        }),
-                        new KeyboardEvent('keydown', {
-                            key: 'a',
-                            bubbles: true
-                        }),
-                        new KeyboardEvent('keyup', {
-                            key: 'a',
-                            bubbles: true
-                        })
-                    ];
+                    // Simulate user interaction with keyboard events
+                    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
+                    document.dispatchEvent(new KeyboardEvent('keyup', { key: 'a', bubbles: true }));
 
-                    // Dispatch all events
-                    events.forEach(evt => document.dispatchEvent(evt));
-
-                    // Also click on a non-interactive element to trigger activity
+                    // Click on a non-interactive element to trigger activity
                     const nonInteractiveElements = document.querySelectorAll('div:not(button):not(a):not(input)');
                     if (nonInteractiveElements.length > 0) {
                         const randomElement = nonInteractiveElements[Math.floor(Math.random() * nonInteractiveElements.length)];
@@ -826,7 +787,7 @@ def keep_alive_thread_function(interval=1):
                 logger.warning(f"JavaScript execution error in keep-alive: {js_err}")
                 # Don't break the loop for JS errors
 
-            # Shorter sleep interval for more frequent interaction
+            # Sleep interval for interaction frequency
             time.sleep(interval)
 
         except Exception as e:
@@ -891,10 +852,14 @@ async def connect_kick_chat(channel_name):
             # Wrap synchronous driver initialization in asyncio.to_thread
             def start_driver():
                 options = uc.ChromeOptions()
-                # options.add_argument('--headless') # Optional: run headless
+                # Avoid using headless mode with undetected-chromedriver
+                # Instead, we're using a virtual display with GNOME
                 options.add_argument('--disable-background-timer-throttling')
                 options.add_argument('--disable-backgrounding-occluded-windows')
                 options.add_argument("--disable-renderer-backgrounding")
+                options.add_argument("--window-size=1920,1080")
+                options.add_argument("--no-sandbox")
+                options.add_argument("--disable-dev-shm-usage")
                 # You might need to specify the driver executable path if not in PATH
                 # driver_executable_path = '/path/to/chromedriver'
                 # return uc.Chrome(options=options, driver_executable_path=driver_executable_path)
@@ -952,9 +917,20 @@ async def connect_kick_chat(channel_name):
             raise last_exception or WebDriverException(f"Failed to connect to {channel_name} using Selenium.")
 
         # --- Start Polling and Streaming Tasks ---
-        polling_active = True # Set flag only after successful connection and wait
+        # Ensure previous tasks are properly handled before setting new state
+        if polling_task and not polling_task.done():
+            polling_task.cancel()
+        if streaming_task and not streaming_task.done():
+            streaming_task.cancel()
+
+        # Validate channel info before updating state
+        if not channel_id or not channel_name:
+            raise ValueError("Invalid channel ID or name received")
+
+        # Update configuration state atomically
         config.kick_channel_id = channel_id
         config.kick_channel_name = channel_name
+        polling_active = True  # Set flag after state is properly configured
 
         logger.info("Creating polling and streaming tasks...")
         # Ensure previous tasks are properly handled if reconnecting quickly
@@ -967,19 +943,17 @@ async def connect_kick_chat(channel_name):
         config.kick_chat_connected = True
         config.kick_chat_stream = {"channel_id": channel_id, "channel_name": channel_name}
 
-        # Resize the browser window to 1/4 size instead of minimizing
-        screen_width = await asyncio.to_thread(lambda: selenium_driver.execute_script('return window.screen.width'))
-        screen_height = await asyncio.to_thread(lambda: selenium_driver.execute_script('return window.screen.height'))
+        # Set a fixed window size for Docker/Xvfb environment
+        # In Docker with Xvfb, window positioning doesn't matter as much
+        # but we still want a reasonable window size for performance
+        width = 1024
+        height = 768
 
-        # Calculate 1/4 size dimensions
-        width = int(screen_width / 2)
-        height = int(screen_height / 2)
+        #
+        await asyncio.to_thread(selenium_driver.execute_script("focus the window")) # Focus the window
 
-        # Set window size and position it in the bottom right corner
-        await asyncio.to_thread(selenium_driver.set_window_size, width, height)
-        await asyncio.to_thread(selenium_driver.set_window_position, screen_width - width, screen_height - height)
 
-        logger.info(f"Browser window resized to 1/4 size ({width}x{height}) and positioned in bottom right corner")
+        logger.info(f"Browser window set to fixed size ({width}x{height}) for Docker environment")
 
         # Start the keep-alive timer thread with shorter interval
         keep_alive_active = True

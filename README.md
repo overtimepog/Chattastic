@@ -12,9 +12,30 @@ Chattastic is an innovative tool designed for Twitch and Kick streamers and mode
 - **Raffle Mode:** Allow viewers to enter a raffle using the !enter command in chat.
 
 ## Installation
+
+### Standard Installation
 1. Run *run.bat* to install dependencies and start the web server
-2. Open your web browser and navigate to http://localhost:5000
+2. Open your web browser and navigate to http://localhost:8000
 3. Follow the on-screen instructions to authenticate with Twitch and/or Kick
+
+### Docker Installation
+Chattastic can also be run in a Docker container, which is especially useful for running undetected_chromedriver in headless environments:
+
+1. Make sure Docker and Docker Compose are installed on your system
+2. Run *run_docker.bat* to build and start the Docker container
+3. Open your web browser and navigate to http://localhost:8000
+4. Follow the on-screen instructions to authenticate with Twitch and/or Kick
+
+#### Testing Kick Chat in Docker
+To test just the Kick chat functionality in Docker:
+
+```bash
+# Run with default channel (xqc) and duration (60 seconds)
+run_docker_kick_test.bat
+
+# Run with specific channel and duration (in seconds)
+run_docker_kick_test.bat hasanabi 120
+```
 
 ## Usage
 1. Authenticate with Twitch and/or Kick
