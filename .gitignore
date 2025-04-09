@@ -153,3 +153,4 @@ cython_debug/
 .qodo
 
 /emote_cache
+/selenium_chrome_data

@@ -5,11 +5,9 @@ import asyncio
 import os
 import random
 from queue import Queue
-from collections import deque # Added for proxy queue
-import itertools # Added for cycling proxies
 # Assuming config.py and globals.py exist and are configured
 import config
-from config import pw_proxy_config # Import the new proxy config
+# Removed proxy config import
 import globals # Import globals to access kick_emotes
 import logging
 from bs4 import BeautifulSoup, Tag # Import BeautifulSoup
@@ -20,19 +18,18 @@ import requests as standard_requests # Import standard requests for exceptions, 
 # logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s') # Example basic config
 logger = logging.getLogger(__name__)
 
-# --- Proxy Management ---
-# Using single proxy URL from config.py
-# --- End Proxy Management ---
+# Proxy Management Removed
 
-# Import Playwright’s asynchronous API and stealth module (still needed for chat scraping)
-from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError, Error as PlaywrightError
-from playwright_stealth import stealth_async
+# Import Selenium and undetected_chromedriver
+import undetected_chromedriver as uc
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException, WebDriverException, NoSuchElementException
 
 # --- Globals ---
-# Persistent Playwright instances for scraping the live chat DOM
-playwright_instance_persistent = None
-browser_instance_persistent = None
-driver_page = None # Page object for ongoing chat polling
+# Persistent Selenium driver instance for scraping the live chat DOM
+selenium_driver = None # WebDriver instance for ongoing chat polling
 
 # Thread-safe queue and polling control
 message_queue = Queue()
@@ -151,7 +148,7 @@ async def get_all_username_emotes(username):
         logger.debug(f"Current globals.kick_emotes: {globals.kick_emotes}") # Log the result for debugging
         return True
 
-    except (standard_requests.exceptions.RequestException, standard_requests.exceptions.Timeout) as req_err:
+    except (standard_requests.exceptions.RequestException, standard_requests.exceptions.Timeout) as req_err: # type: ignore
         # Log error if direct request fails for the main list
         logger.error(f"Failed to fetch emotes list for {username} using stealth_requests: {str(req_err)}")
     except json.JSONDecodeError as json_err:
@@ -185,7 +182,7 @@ async def get_kick_channel_id(username):
         logger.info(f"Found channel ID for {username}: {channel_id}")
         return str(channel_id)
 
-    except (standard_requests.exceptions.RequestException, standard_requests.exceptions.Timeout) as req_err:
+    except (standard_requests.exceptions.RequestException, standard_requests.exceptions.Timeout) as req_err: # type: ignore
         logger.error(f"Failed to get channel ID for {username} using stealth_requests: {str(req_err)}")
         return None
     except json.JSONDecodeError as json_err:
@@ -216,7 +213,7 @@ async def get_latest_subscriber(channel_id):
             logger.warning(f"No subscriber 'data' key found in JSON response for channel: {channel_id}. Data: {data}")
             return None
 
-    except (standard_requests.exceptions.RequestException, standard_requests.exceptions.Timeout) as req_err:
+    except (standard_requests.exceptions.RequestException, standard_requests.exceptions.Timeout) as req_err: # type: ignore
         logger.error(f"Failed to get latest subscriber for {channel_id} using stealth_requests: {str(req_err)}")
         return None
     except json.JSONDecodeError as json_err:
@@ -328,73 +325,93 @@ def parse_kick_timestamp(time_str):
     return time_str.strip() # Currently returns as string
 
 
-async def wait_for_selector_with_retry(page, selector, max_retries=2, delay=1, timeout_per_try=7000, log_prefix="", channel_name="unknown"):
+async def wait_for_element_with_retry(driver, by, value, max_retries=2, delay=1, timeout_per_try=7, log_prefix="", channel_name="unknown"):
     """
-    Attempts to wait for a selector with retries and longer timeouts.
+    Attempts to wait for an element with retries and longer timeouts using Selenium.
     Takes a screenshot on timeout.
     """
     attempt = 1
     last_exception = None
+    selector_str = f"{by}={value}" # For logging
     while attempt <= max_retries:
         try:
-            logger.info(f"{log_prefix}Selector wait attempt {attempt}/{max_retries}: Waiting for '{selector}' (timeout: {timeout_per_try}ms)...")
-            element = await page.wait_for_selector(selector, timeout=timeout_per_try, state="visible")
-            logger.info(f"{log_prefix}Selector '{selector}' found and visible.")
-            return element # Return the handle if successful
-        except PlaywrightTimeoutError as e:
-            logger.warning(f"{log_prefix}Selector wait attempt {attempt}/{max_retries}: Timeout waiting for '{selector}'.")
+            logger.info(f"{log_prefix}Element wait attempt {attempt}/{max_retries}: Waiting for '{selector_str}' (timeout: {timeout_per_try}s)...")
+            # Wrap synchronous WebDriverWait in asyncio.to_thread
+            element = await asyncio.to_thread(
+                WebDriverWait(driver, timeout_per_try).until,
+                EC.visibility_of_element_located((by, value))
+            )
+            logger.info(f"{log_prefix}Element '{selector_str}' found and visible.")
+            return element # Return the WebElement if successful
+        except TimeoutException as e:
+            logger.warning(f"{log_prefix}Element wait attempt {attempt}/{max_retries}: Timeout waiting for '{selector_str}'.")
             last_exception = e
             # --- Take Screenshot on Timeout ---
             try:
-                # Ensure the page is still usable for screenshot
-                if not page.is_closed():
+                # Ensure the driver is still usable for screenshot
+                if driver and driver.session_id:
                     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                    safe_selector = selector.replace('#','').replace('.','').replace('[','').replace(']','').replace('=','')[:30] # Basic sanitize
+                    safe_selector = value.replace('#','').replace('.','').replace('[','').replace(']','').replace('=','')[:30] # Basic sanitize
                     screenshot_filename = f"debug_screenshots/{timestamp}_{channel_name}_attempt{attempt}_timeout_{safe_selector}.png"
-                    await page.screenshot(path=screenshot_filename, full_page=True)
+                    # Wrap synchronous screenshot in asyncio.to_thread
+                    await asyncio.to_thread(driver.save_screenshot, screenshot_filename)
                     logger.info(f"{log_prefix}Saved screenshot on timeout to: {screenshot_filename}")
                 else:
-                    logger.warning(f"{log_prefix}Page was closed, cannot take screenshot for timeout on attempt {attempt}.")
+                    logger.warning(f"{log_prefix}Driver was closed or invalid, cannot take screenshot for timeout on attempt {attempt}.")
             except Exception as ss_err:
                 logger.error(f"{log_prefix}Failed to take or save screenshot on timeout: {ss_err}")
             # --- End Screenshot ---
 
             if attempt < max_retries:
-                 logger.info(f"{log_prefix}Retrying selector wait in {delay} seconds...")
+                 logger.info(f"{log_prefix}Retrying element wait in {delay} seconds...")
                  await asyncio.sleep(delay)
             attempt += 1
-        except PlaywrightError as e: # Catch other potential playwright errors
-             logger.error(f"{log_prefix}Selector wait attempt {attempt}/{max_retries}: Playwright error waiting for '{selector}': {str(e)}")
+        except WebDriverException as e: # Catch other potential Selenium errors
+             logger.error(f"{log_prefix}Element wait attempt {attempt}/{max_retries}: WebDriver error waiting for '{selector_str}': {str(e)}")
              last_exception = e
-             if "closed" in str(e).lower(): raise e # Don't retry if context/page is closed
+             # Check if the browser/driver is closed
+             if "disconnected" in str(e).lower() or "session deleted" in str(e).lower() or "no such window" in str(e).lower():
+                 logger.error(f"{log_prefix}Driver appears to be closed. Raising exception.")
+                 raise e # Don't retry if driver is closed
              await asyncio.sleep(delay)
              attempt += 1
+        except Exception as e: # Catch unexpected errors
+            logger.exception(f"{log_prefix}Unexpected error during element wait for '{selector_str}': {e}")
+            last_exception = e
+            # Decide if retry is appropriate based on error type if needed
+            await asyncio.sleep(delay)
+            attempt += 1
 
-    logger.error(f"Failed to locate selector '{selector}' after {max_retries} attempts.")
-    raise last_exception or PlaywrightTimeoutError(f"Selector '{selector}' not found after {max_retries} attempts.")
+
+    logger.error(f"Failed to locate element '{selector_str}' after {max_retries} attempts.")
+    raise last_exception or TimeoutException(f"Element '{selector_str}' not found after {max_retries} attempts.")
 
 
 async def poll_messages(channel_name):
-    """Continuously poll for new chat messages using the persistent driver_page."""
-    # (Implementation remains largely the same as the previous good version,
-    # ensure selectors match the target HTML structure)
-    global last_processed_index, polling_active, driver_page
-    if not driver_page or driver_page.is_closed():
-        logger.error("Polling cannot start: Persistent Playwright page is not initialized or closed.")
+    """Continuously poll for new chat messages using the persistent Selenium driver."""
+    global last_processed_index, polling_active, selenium_driver
+    if not selenium_driver or not selenium_driver.session_id:
+        logger.error("Polling cannot start: Persistent Selenium driver is not initialized or session is invalid.")
         polling_active = False
         return
 
     logger.info(f"Starting Kick chat DOM polling for channel: {channel_name}")
-    message_selector = "div#chatroom-messages > div.relative > div[data-index]" # Selector for message wrappers
+    message_selector = "div#chatroom-messages > div.relative > div[data-index]" # CSS Selector for message wrappers
 
     while polling_active:
         try:
-            if driver_page.is_closed():
-                 logger.warning("Polling loop detected page is closed. Stopping.")
+            # Check if driver is still alive (basic check)
+            try:
+                # Accessing current_url is a lightweight way to check session validity
+                _ = await asyncio.to_thread(getattr, selenium_driver, 'current_url')
+            except WebDriverException as wd_err:
+                 logger.warning(f"Polling loop detected WebDriverException (driver likely closed): {wd_err}. Stopping.")
                  polling_active = False
                  break
 
-            message_elements = await driver_page.query_selector_all(message_selector)
+            # Wrap synchronous find_elements in asyncio.to_thread
+            message_elements = await asyncio.to_thread(selenium_driver.find_elements, By.CSS_SELECTOR, message_selector)
+
             if not message_elements:
                 # logger.debug("No message elements found in current poll cycle.")
                 await asyncio.sleep(1) # Wait a bit longer if nothing is found
@@ -403,73 +420,96 @@ async def poll_messages(channel_name):
             new_messages_found_in_batch = False
             max_index_in_batch = last_processed_index
 
-            for element in message_elements:
-                index_str = await element.get_attribute("data-index")
-                if not index_str: continue
-                try:
-                    index = int(index_str)
-                except ValueError: continue
-
-                if index > last_processed_index:
-                    new_messages_found_in_batch = True
-                    max_index_in_batch = max(max_index_in_batch, index)
-
+            # Process elements synchronously within the thread to avoid excessive thread switching
+            # This requires careful handling if parsing itself becomes very slow
+            def process_batch(elements, current_last_index):
+                processed_messages = []
+                max_idx = current_last_index
+                new_found = False
+                for element in elements:
                     try:
-                        # Get the raw HTML of the message element
-                        outer_html = await element.evaluate("el => el.outerHTML")
+                        index_str = element.get_attribute("data-index")
+                        if not index_str: continue
+                        index = int(index_str)
 
-                        # Parse the HTML using BeautifulSoup
-                        parsed_data = _parse_kick_message_html(outer_html)
+                        if index > current_last_index:
+                            new_found = True
+                            max_idx = max(max_idx, index)
+                            # Get the raw HTML of the message element
+                            outer_html = element.get_attribute("outerHTML")
+                            if outer_html:
+                                processed_messages.append({"index": index, "html": outer_html})
+                            else:
+                                logger.warning(f"Could not get outerHTML for element with index {index}")
+                    except (ValueError, NoSuchElementException, WebDriverException) as el_err:
+                        logger.warning(f"Error getting attributes for a message element: {el_err}")
+                    except Exception as gen_err: # Catch unexpected errors during attribute access
+                        logger.error(f"Unexpected error getting attributes for element: {gen_err}")
+                return processed_messages, max_idx, new_found
 
-                        # Extract data from the parsed result
-                        timestamp_text = parsed_data.get("timestamp", "N/A")
-                        username_text = parsed_data.get("sender", "System")
-                        message_text = parsed_data.get("message_text", "")
-                        emotes_list = parsed_data.get("emotes", [])
-                        is_reply = parsed_data.get("is_reply", False)
+            # Run the batch processing in a thread
+            messages_to_parse, max_index_in_batch, new_messages_found_in_batch = await asyncio.to_thread(
+                process_batch, message_elements, last_processed_index
+            )
 
-                        # --- Queue the message ---
-                        # Ensure we have a sender and either text or emotes
-                        if username_text and (message_text or emotes_list or username_text != "System"):
-                            msg = {
-                                "data_index": index,
-                                "timestamp": timestamp_text,
-                                "sender": username_text,
-                                "content": message_text, # Already stripped in parser
-                                "emotes": emotes_list, # Add emotes data
-                                "is_reply": is_reply,
-                            }
-                            message_queue.put(msg)
-                            # logger.debug(f"Queued message index {index}: User='{username_text}', Text='{message_text[:30]}...', Emotes={len(emotes_list)}")
-                        else:
-                             logger.debug(f"Skipping queuing message index {index} due to missing sender/content after BS4 parsing.")
+            # Parse HTML and queue messages asynchronously
+            for item in messages_to_parse:
+                index = item["index"]
+                outer_html = item["html"]
+                try:
+                    # Parse the HTML using BeautifulSoup (already imported)
+                    parsed_data = _parse_kick_message_html(outer_html)
 
-                    except Exception as parse_err:
-                        logger.error(f"Error processing message element at index {index}: {str(parse_err)}")
-                        try:
-                            outer_html = await element.evaluate("el => el.outerHTML")
-                            logger.debug(f"Problematic element HTML for index {index}: {outer_html[:500]}...")
-                        except Exception as html_err:
-                             logger.error(f"Could not get HTML of problematic element index {index}: {html_err}")
+                    # Extract data from the parsed result
+                    timestamp_text = parsed_data.get("timestamp", "N/A")
+                    username_text = parsed_data.get("sender", "System")
+                    message_text = parsed_data.get("message_text", "")
+                    emotes_list = parsed_data.get("emotes", [])
+                    is_reply = parsed_data.get("is_reply", False)
+
+                    # --- Queue the message ---
+                    # Ensure we have a sender and either text or emotes
+                    if username_text and (message_text or emotes_list or username_text != "System"):
+                        msg = {
+                            "data_index": index,
+                            "timestamp": timestamp_text,
+                            "sender": username_text,
+                            "content": message_text,
+                            "emotes": emotes_list,
+                            "is_reply": is_reply,
+                        }
+                        message_queue.put(msg)
+                        # logger.debug(f"Queued message index {index}: User='{username_text}', Text='{message_text[:30]}...', Emotes={len(emotes_list)}")
+                    else:
+                         logger.debug(f"Skipping queuing message index {index} due to missing sender/content after BS4 parsing.")
+
+                except Exception as parse_err:
+                    logger.error(f"Error parsing or queuing message element at index {index}: {str(parse_err)}")
+                    logger.debug(f"Problematic element HTML for index {index}: {outer_html[:500]}...")
+
 
             # Update index after processing batch
             if new_messages_found_in_batch:
                 last_processed_index = max_index_in_batch
                 logger.info(f"Processed DOM messages up to index {last_processed_index}")
 
+                last_processed_index = max_index_in_batch
+                logger.info(f"Processed DOM messages up to index {last_processed_index}")
+
             await asyncio.sleep(0.8) # Polling interval
 
-        except PlaywrightError as e:
-            if "closed" in str(e).lower() or "browser has been closed" in str(e):
-                 logger.error(f"Persistent Playwright connection closed during polling: {str(e)}")
+        except WebDriverException as e:
+            # More specific handling for closed driver/browser
+            if "disconnected" in str(e).lower() or "session deleted" in str(e).lower() or "no such window" in str(e).lower() or "unable to connect" in str(e).lower():
+                 logger.error(f"Persistent Selenium driver connection closed or lost during polling: {str(e)}")
                  polling_active = False
-                 break
+                 break # Exit loop
             else:
-                 logger.error(f"Unhandled Playwright error during DOM polling: {str(e)}")
-                 await asyncio.sleep(5)
+                 logger.error(f"Unhandled WebDriverException during DOM polling: {str(e)}")
+                 await asyncio.sleep(5) # Wait before retrying
         except Exception as e:
             logger.exception(f"Generic error during DOM message polling loop: {str(e)}") # Use exception for traceback
-            await asyncio.sleep(5)
+            await asyncio.sleep(5) # Wait before retrying
 
     logger.info(f"Stopped Kick chat DOM polling for channel: {channel_name}")
 
@@ -637,8 +677,8 @@ async def stream_messages(channel_name):
 
 
 async def connect_kick_chat(channel_name):
-    """Connect to Kick chat: Get ID (via Playwright), init persistent browser, start polling."""
-    global driver_page, browser_instance_persistent, playwright_instance_persistent
+    """Connect to Kick chat: Get ID, init persistent Selenium driver, start polling."""
+    global selenium_driver # Use the Selenium driver global
     global polling_active, last_processed_index, polling_task, streaming_task
 
     if not channel_name or channel_name.isspace():
@@ -652,8 +692,8 @@ async def connect_kick_chat(channel_name):
     # --- Disconnect if already connected ---
     if config.kick_chat_connected:
         logger.info(f"Disconnecting previous Kick chat ({config.kick_channel_name}) before connecting to {channel_name}.")
-        await disconnect_kick_chat()
-        await asyncio.sleep(2)
+        await disconnect_kick_chat() # Ensure previous state is cleared
+        await asyncio.sleep(1) # Short delay
 
     # --- Reset state ---
     last_processed_index = -1
@@ -663,7 +703,7 @@ async def connect_kick_chat(channel_name):
         except: pass
 
     # --- Get Channel ID (Using stealth_requests) ---
-    logger.info(f"Getting channel ID for: {channel_name} using stealth_requests...")
+    logger.info(f"Getting channel ID for: {channel_name} using https://github.com/jpjacobpadilla/Stealth-Requests...")
     channel_id = await get_kick_channel_id(channel_name) # Uses the stealth_requests version now
     if not channel_id:
         logger.error(f"Could not get Kick channel ID via stealth_requests for: {channel_name}")
@@ -672,6 +712,7 @@ async def connect_kick_chat(channel_name):
             "data": {"message": f"Could not find Kick channel or bypass protection for: {channel_name}"}
         }))
         return False
+    logger.info(f"Successfully obtained Kick channel ID: {channel_id}")
 
     # --- Download Emotes for the Channel ---
     logger.info(f"Attempting to download emotes for channel: {channel_name}")
@@ -682,102 +723,75 @@ async def connect_kick_chat(channel_name):
         logger.warning(f"Failed to download emotes for {channel_name}. Proceeding without custom emotes.")
      # Note: We proceed even if emotes fail, chat should still work.
 
-    # --- Initialize PERSISTENT Playwright for scraping (if needed) ---
-    # Corrected indentation for the entire try block below
+    # --- Initialize PERSISTENT Selenium Driver (if needed) ---
     try:
-        if not playwright_instance_persistent:
-            logger.info("Initializing Persistent Playwright...")
-            playwright_instance_persistent = await async_playwright().start()
+        if not selenium_driver or not selenium_driver.session_id:
+            logger.info("Initializing Persistent Selenium Driver (undetected-chromedriver)...")
+            # Wrap synchronous driver initialization in asyncio.to_thread
+            def start_driver():
+                options = uc.ChromeOptions()
+                # options.add_argument('--headless') # Optional: run headless
+                options.add_argument('--disable-background-timer-throttling')
+                options.add_argument('--disable-backgrounding-occluded-windows')
+                options.add_argument("--disable-renderer-backgrounding")
+                # You might need to specify the driver executable path if not in PATH
+                # driver_executable_path = '/path/to/chromedriver'
+                # return uc.Chrome(options=options, driver_executable_path=driver_executable_path)
+                return uc.Chrome(options=options)
 
-        if not browser_instance_persistent or not browser_instance_persistent.is_connected():
-            logger.info("Launching Persistent Browser Instance...")
-            browser_instance_persistent = await playwright_instance_persistent.chromium.launch(
-                headless=True, # Or False for debugging
-                args=['--no-sandbox', '--disable-setuid-sandbox']
-            )
-            # Optional: Add listener for disconnect
-            browser_instance_persistent.on("disconnected", lambda: logger.warning("Persistent browser disconnected!"))
+            selenium_driver = await asyncio.to_thread(start_driver)
+            logger.info("Persistent Selenium Driver initialized.")
+        else:
+            logger.info("Reusing existing Persistent Selenium Driver.")
 
-
-        if not driver_page or driver_page.is_closed():
-            logger.info("Opening Persistent Browser Page...")
-            # Create a new context potentially, for better isolation if needed
-            # context = await browser_instance_persistent.new_context()
-            # driver_page = await context.new_page()
-            driver_page = await browser_instance_persistent.new_page()
-            logger.info("Applying stealth to Persistent Page...")
-            await stealth_async(driver_page)
-            driver_page.on("close", lambda: logger.warning("Persistent driver page was closed!")) # Log if page closes unexpectedly
-
-
-        # --- Navigate Persistent Page and Wait (Using Single Proxy) ---
+        # --- Navigate and Wait ---
         chat_url = f"https://kick.com/{channel_name}"
         connection_successful = False
-        last_pw_exception = None
+        last_exception = None
+        log_prefix = "[Selenium Connect] "
 
-        # Proxy config is now imported from config.py
-        log_prefix = f"[Proxy Attempt ({pw_proxy_config['server']})] "
-
-        # Attempt connection using the single proxy (pw_proxy_config is imported)
-        temp_context = None
-        temp_page = None
         try:
-            # Create a NEW context and page for this attempt
-            logger.info(f"{log_prefix}Creating new browser context with proxy...")
-            # Use the imported pw_proxy_config directly
-            temp_context = await browser_instance_persistent.new_context(proxy=pw_proxy_config)
-            temp_context.on("pageerror", lambda exc: logger.error(f"{log_prefix}Context Page Error: {exc}"))
-            temp_context.on("close", lambda: logger.debug(f"{log_prefix}Context closed."))
-
-            logger.info(f"{log_prefix}Opening new page...")
-            temp_page = await temp_context.new_page()
-            temp_page.on("close", lambda: logger.debug(f"{log_prefix}Page closed."))
-            temp_page.on("crash", lambda: logger.error(f"{log_prefix}Page crashed!"))
-
-            logger.info(f"{log_prefix}Applying stealth...")
-            await stealth_async(temp_page)
-
             logger.info(f"{log_prefix}Navigating to {chat_url}...")
-            await temp_page.goto(chat_url, wait_until="load", timeout=90000)
-            logger.info(f"{log_prefix}Waiting for page DOM content to be loaded...")
-            await temp_page.wait_for_load_state('domcontentloaded', timeout=60000)
+            # Wrap synchronous driver.get in asyncio.to_thread
+            await asyncio.to_thread(selenium_driver.get, chat_url)
+            logger.info(f"{log_prefix}Navigation complete. Waiting for chat messages container (#chatroom-messages)...")
 
-            logger.info(f"{log_prefix}Waiting for chat messages container (#chatroom-messages)...")
-            await wait_for_selector_with_retry(temp_page, "#chatroom-messages", timeout_per_try=15000, log_prefix=log_prefix, channel_name=channel_name) # Increased timeout per try
+            # Use the modified wait function
+            await wait_for_element_with_retry(
+                selenium_driver,
+                By.CSS_SELECTOR,
+                "#chatroom-messages",
+                timeout_per_try=15, # Timeout in seconds for Selenium
+                log_prefix=log_prefix,
+                channel_name=channel_name
+            )
 
             logger.info(f"{log_prefix}Connection successful!")
-            # Success! Assign the new page and context to globals
-            # Close previous page if it exists and is different
-            if driver_page and driver_page != temp_page and not driver_page.is_closed():
-                 await driver_page.close()
-            driver_page = temp_page
             connection_successful = True
 
-        except (PlaywrightTimeoutError, PlaywrightError) as e:
-            logger.error(f"{log_prefix}Playwright connection failed: {type(e).__name__} - {str(e)}")
-            last_pw_exception = e
-            # Clean up the failed context and page
-            if temp_page and not temp_page.is_closed():
-                await temp_page.close()
-            if temp_context and temp_context.pages:
-                 try: await temp_context.close()
-                 except Exception as ce: logger.debug(f"{log_prefix}Minor error closing context on failure: {ce}")
+        except (TimeoutException, WebDriverException) as e:
+            logger.error(f"{log_prefix}Selenium connection failed: {type(e).__name__} - {str(e)}")
+            last_exception = e
         except Exception as e:
-             logger.error(f"{log_prefix}Unexpected error during Playwright connection: {e}", exc_info=True)
-             last_pw_exception = e
-             # Clean up context/page
-             if temp_page and not temp_page.is_closed(): await temp_page.close()
-             if temp_context and temp_context.pages:
-                  try: await temp_context.close()
-                  except Exception as ce: logger.debug(f"{log_prefix}Minor error closing context on unexpected failure: {ce}")
+             logger.error(f"{log_prefix}Unexpected error during Selenium connection: {e}", exc_info=True)
+             last_exception = e
 
         # --- Check final connection status ---
         if not connection_successful:
-            logger.error(f"Playwright connection failed for {channel_name} using proxy {pw_proxy_config['server']}. Last error: {type(last_pw_exception).__name__ if last_pw_exception else 'N/A'}")
-            raise last_pw_exception or PlaywrightError(f"Failed to connect to {channel_name} using proxy.")
+            error_msg = f"Selenium connection failed for {channel_name}. Last error: {type(last_exception).__name__ if last_exception else 'N/A'}"
+            logger.error(error_msg)
+            # Attempt to quit the driver if connection failed mid-way
+            if selenium_driver:
+                try:
+                    await asyncio.to_thread(selenium_driver.quit)
+                    logger.info("Quit Selenium driver after connection failure.")
+                    selenium_driver = None
+                except Exception as q_err:
+                    logger.error(f"Error quitting Selenium driver after connection failure: {q_err}")
+            raise last_exception or WebDriverException(f"Failed to connect to {channel_name} using Selenium.")
 
         # --- Start Polling and Streaming Tasks ---
-        polling_active = True
+        polling_active = True # Set flag only after successful connection and wait
         config.kick_channel_id = channel_id
         config.kick_channel_name = channel_name
 
@@ -796,27 +810,35 @@ async def connect_kick_chat(channel_name):
         logger.info(f"Successfully connected to Kick chat: {channel_name}")
         return True
 
-    # Outer exception handling for Playwright connection failure
-    except (PlaywrightTimeoutError, PlaywrightError) as e:
-        logger.error(f"Playwright connection failed for {channel_name}: {type(e).__name__} - {str(e)}")
-        error_message = f"Failed to load Kick channel page for {channel_name} using proxy {pw_proxy_config['server']} (timeout or error). Is the channel live or blocked?"
+        # Note: No return False here, error is raised above if connection failed
+
+    # Outer exception handling for Selenium connection/wait failures
+    except (TimeoutException, WebDriverException) as e:
+        logger.error(f"Selenium connection/wait failed for {channel_name}: {type(e).__name__} - {str(e)}")
+        error_message = f"Failed to load Kick channel page or find chat for {channel_name} (timeout or WebDriver error). Is the channel live or blocked?"
         await globals.manager.broadcast(json.dumps({"type": "error", "data": {"message": error_message}}))
-        await disconnect_kick_chat() # Clean up on failure
+        # Ensure disconnect cleanup runs even if connection failed partway
+        await disconnect_kick_chat(driver_already_quit=(selenium_driver is None)) # Pass flag if driver was quit during failure handling
         return False
     except Exception as e: # Catch other unexpected errors during setup/connection
-        logger.exception(f"Unexpected error during persistent browser setup for {channel_name}: {str(e)}")
-        await globals.manager.broadcast(json.dumps({"type": "error", "data": {"message": f"Failed to connect to Kick chat: {str(e)}"}}))
-        await disconnect_kick_chat() # Clean up on failure
+        logger.exception(f"Unexpected error during Selenium driver setup or connection for {channel_name}: {str(e)}")
+        error_message = f"Unexpected error connecting to Kick chat: {str(e)}"
+        await globals.manager.broadcast(json.dumps({"type": "error", "data": {"message": error_message}}))
+        # Ensure disconnect cleanup runs
+        await disconnect_kick_chat(driver_already_quit=(selenium_driver is None))
         return False
 
 
-async def disconnect_kick_chat():
-    """Disconnect from Kick chat, stop tasks, and clean up persistent Playwright page."""
-    global driver_page, polling_active, polling_task, streaming_task
-    # Note: We typically keep the persistent browser and playwright instance running unless the app shuts down.
+async def disconnect_kick_chat(driver_already_quit=False):
+    """Disconnect from Kick chat, stop tasks. Optionally keeps driver running."""
+    global selenium_driver, polling_active, polling_task, streaming_task
+    # Note: We keep the persistent driver running by default unless shutdown_selenium_driver is called.
 
     if not config.kick_chat_connected and not polling_active:
         logger.info("No active Kick chat connection or tasks to disconnect.")
+        # Still ensure driver is handled if disconnect is called after a failed connect where driver might exist
+        if selenium_driver and not driver_already_quit:
+             logger.debug("Disconnect called with no active connection, but driver exists. Keeping driver alive.")
     else:
         logger.info(f"Disconnecting from Kick chat: {config.kick_channel_name or 'Unknown'}")
 
@@ -833,18 +855,7 @@ async def disconnect_kick_chat():
     # Wait briefly for tasks
     await asyncio.sleep(0.5)
 
-    # Close the specific page used for polling, but keep the browser alive
-    try:
-        if driver_page and not driver_page.is_closed():
-            logger.info("Closing persistent Playwright page...")
-            await driver_page.close()
-            logger.info("Persistent Playwright page closed.")
-    except Exception as e:
-        logger.error(f"Error closing persistent driver page: {str(e)}")
-    finally:
-        driver_page = None # Ensure it's marked as closed
-
-    # Reset Config and Globals
+    # Reset Config and Globals (Do this before potentially slow driver operations)
     disconnected_channel = config.kick_channel_name or "Unknown"
     config.kick_chat_connected = False
     config.kick_chat_stream = None
@@ -871,49 +882,57 @@ async def disconnect_kick_chat():
     except Exception as broadcast_err:
          logger.error(f"Error broadcasting disconnect message: {broadcast_err}")
 
-    logger.info(f"Successfully disconnected from Kick chat: {disconnected_channel}")
+    logger.info(f"Successfully disconnected logic for Kick chat: {disconnected_channel}")
     return True
 
 
-async def shutdown_playwright():
-    """Gracefully close persistent Playwright browser and stop the instance."""
-    global browser_instance_persistent, playwright_instance_persistent, driver_page
-    logger.info("Shutting down Persistent Playwright resources...")
+async def shutdown_selenium_driver():
+    """Gracefully close the persistent Selenium driver."""
+    global selenium_driver
+    logger.info("Shutting down Persistent Selenium Driver...")
 
-    # Ensure page is closed first
-    if driver_page and not driver_page.is_closed():
+    if selenium_driver:
         try:
-            await driver_page.close()
-            logger.info("Persistent page closed during shutdown.")
+            # Wrap synchronous driver.quit in asyncio.to_thread
+            await asyncio.to_thread(selenium_driver.quit)
+            logger.info("Persistent Selenium driver quit successfully.")
+        except WebDriverException as e:
+            logger.error(f"WebDriverException during Selenium driver quit: {e}")
         except Exception as e:
-            logger.error(f"Error closing persistent page during shutdown: {e}") # Log error in empty except
-    # Close browser
-    if browser_instance_persistent and browser_instance_persistent.is_connected():
-        try:
-            await browser_instance_persistent.close()
-            logger.info("Persistent browser instance closed.")
-        except Exception as e:
-            logger.error(f"Error closing persistent browser instance: {e}")
-    browser_instance_persistent = None
-
-    # Stop Playwright
-    if playwright_instance_persistent:
-         try:
-              await playwright_instance_persistent.stop()
-              logger.info("Persistent Playwright instance stopped.")
-         except Exception as e:
-              logger.error(f"Error stopping persistent playwright instance: {e}")
-    playwright_instance_persistent = None
+            logger.error(f"Unexpected error during Selenium driver quit: {e}")
+        finally:
+            selenium_driver = None # Ensure it's marked as closed/quit
+    else:
+        logger.info("Persistent Selenium driver was already None.")
 
 # --- Example Usage (within an async context) ---
 # async def main():
 #     # Load config, setup globals etc.
-#     connected = await connect_kick_chat("oakleyboiii")
+#     connected = await connect_kick_chat("your_channel_name") # Replace with actual channel
 #     if connected:
 #         logger.info("Connection successful, running for 60 seconds...")
 #         await asyncio.sleep(60)
 #         await disconnect_kick_chat()
-#     await shutdown_playwright()
+#     await shutdown_selenium_driver() # Use the new shutdown function
 
 # if __name__ == "__main__":
+#     # Setup basic logging for testing
+#     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+#     # Initialize dummy globals manager if needed for testing broadcast
+#     class DummyManager:
+#         async def broadcast(self, msg): print(f"BROADCAST: {msg}")
+#     globals.manager = DummyManager()
+#     # Initialize dummy config if needed
+#     class DummyConfig:
+#         kick_chat_connected = False
+#         kick_chat_stream = None
+#         kick_channel_id = None
+#         kick_channel_name = None
+#         kick_chat_messages = []
+#         entered_users = []
+#         KICK_TOKEN_FILE = 'kick_tokens.json'
+#     config = DummyConfig()
+#     # Initialize dummy globals emotes
+#     globals.kick_emotes = {}
+
 #     asyncio.run(main())

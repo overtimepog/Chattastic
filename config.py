@@ -38,7 +38,6 @@ proxy_server = "https://superproxy.zenrows.com:1338"
 # Format the proxy configuration for Playwright
 pw_proxy_config = {
     "server": proxy_server,
-    "bypass": "localhost",
     "username": "DkQS3sMDQ9gy",
     "password": "TGHR6278"
 }

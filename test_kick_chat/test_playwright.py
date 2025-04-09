@@ -53,21 +53,23 @@ async def setup_playwright(use_proxy=False):
 
         # Launch browser
         logger.info("Launching browser...")
-        browser_instance = await playwright_instance.chromium.launch(
-            headless=True,  # Set to False for debugging
+        browser_instance = await playwright_instance.chromium.launch(  # Set to False for debugging
             args=['--no-sandbox', '--disable-setuid-sandbox']
         )
 
+        # Define user agent for better stealth
+        user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100 Safari/537.36"
+
         # Create context with proxy if needed
         if use_proxy:
-            logger.info(f"Creating browser context with proxy: {PROXY_CONFIG['server']}")
-            context = await browser_instance.new_context(proxy=PROXY_CONFIG)
+            logger.info(f"Creating browser context with proxy: {PROXY_CONFIG['server']} and user agent")
+            context = await browser_instance.new_context(proxy=PROXY_CONFIG, user_agent=user_agent)
         else:
-            logger.info("Creating browser context without proxy")
-            context = await browser_instance.new_context()
+            logger.info(f"Creating browser context with user agent: {user_agent}")
+            context = await browser_instance.new_context(user_agent=user_agent)
 
         # Create page and apply stealth
-        logger.info("Creating new page and applying stealth...")
+        logger.info(f"Creating new page and applying stealth with user agent: {user_agent}...")
         page = await context.new_page()
         await stealth_async(page)
 
