@@ -427,7 +427,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 bottomMargin: parseInt(document.getElementById('overlay-bottom-margin')?.value || '10', 10),
                 randomMessageDuration: parseInt(document.getElementById('random-message-duration')?.value || '5', 10),
                 randomAnimationDuration: parseInt(document.getElementById('random-animation-duration')?.value || '500', 10),
-                randomMaxMessages: parseInt(document.getElementById('random-max-messages')?.value || '10', 10)
+                randomMaxMessages: parseInt(document.getElementById('random-max-messages')?.value || '10', 10),
+                debugMode: document.getElementById('random-debug-mode')?.checked || false
             };
 
             sendMessage({
@@ -484,6 +485,26 @@ document.addEventListener('DOMContentLoaded', () => {
     if (bgOpacityInput && bgOpacityValue) {
         bgOpacityInput.addEventListener('input', () => {
             bgOpacityValue.textContent = bgOpacityInput.value;
+        });
+    }
+
+    // Toggle debug mode button
+    const toggleDebugBtn = document.getElementById('toggle-debug-mode-btn');
+    if (toggleDebugBtn) {
+        toggleDebugBtn.addEventListener('click', () => {
+            // Send toggle debug command directly to the overlay
+            sendMessage({
+                type: 'control_kick_overlay',
+                data: {
+                    action: 'toggle_debug'
+                }
+            });
+
+            // Update the checkbox state (toggle it)
+            const debugCheckbox = document.getElementById('random-debug-mode');
+            if (debugCheckbox) {
+                debugCheckbox.checked = !debugCheckbox.checked;
+            }
         });
     }
 

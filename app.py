@@ -273,11 +273,18 @@ async def handle_ws_message(websocket: WebSocket, message: dict):
                 if "randomMaxMessages" in styles and isinstance(styles["randomMaxMessages"], (int, float)):
                     valid_styles["randomMaxMessages"] = max(1, min(50, styles["randomMaxMessages"]))
 
+                # Debug mode validation
+                if "debugMode" in styles and isinstance(styles["debugMode"], bool):
+                    valid_styles["debugMode"] = styles["debugMode"]
+
                 # Add validated styles to command data
                 command_data["styles"] = valid_styles
                 logger.info(f"Applying overlay styles: {valid_styles}")
             elif action == "reset_styles":
                 # No extra data needed for reset
+                pass
+            elif action == "toggle_debug":
+                # No extra data needed for toggle_debug
                 pass
             else:
                 logger.warning(f"Unknown or invalid Kick overlay control action: {action}")

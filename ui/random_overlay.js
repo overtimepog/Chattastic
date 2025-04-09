@@ -4,10 +4,16 @@
     const wsUrl = `${wsProtocol}//${window.location.host}/ws`;
     let ws = null;
     let reconnectTimeout = null;
-    
+
     // Track active messages for cleanup
     const activeMessages = [];
-    
+
+    // Maximum attempts to find non-overlapping position
+    const MAX_PLACEMENT_ATTEMPTS = 50;
+
+    // Margin between messages (in pixels) to prevent them from being too close
+    const MESSAGE_MARGIN = 10;
+
     // Default style values
     const defaultStyles = {
         textColor: '#ffffff',
@@ -24,7 +30,8 @@
         bottomMargin: 10,
         randomMessageDuration: 5,
         randomAnimationDuration: 500,
-        randomMaxMessages: 10
+        randomMaxMessages: 10,
+        debugMode: false // Set to true to visualize message boundaries
     };
 
     // Current styles (initialize with defaults)
@@ -56,7 +63,7 @@
         ws.onmessage = (event) => {
             try {
                 const message = JSON.parse(event.data);
-                
+
                 if (message.type === 'kick_chat_message' && message.data) {
                     addChatMessage(message.data.user, message.data.text, message.data.emotes);
                 } else if (message.type === 'kick_overlay_command' && message.data) {
@@ -143,58 +150,224 @@
         positionRandomMessage(messageElement);
     }
 
+    // Check if two rectangles overlap
+    function doRectanglesOverlap(rect1, rect2) {
+        // Check if one rectangle is to the left of the other
+        if (rect1.x + rect1.width < rect2.x || rect2.x + rect2.width < rect1.x) {
+            return false;
+        }
+
+        // Check if one rectangle is above the other
+        if (rect1.y + rect1.height < rect2.y || rect2.y + rect2.height < rect1.y) {
+            return false;
+        }
+
+        // If neither of the above conditions is true, the rectangles overlap
+        return true;
+    }
+
+    // Check if a position overlaps with any active message
+    function checkForOverlap(x, y, width, height) {
+        // Add margin to the rectangle to ensure messages aren't too close
+        const newRect = {
+            x: x - MESSAGE_MARGIN,
+            y: y - MESSAGE_MARGIN,
+            width: width + (MESSAGE_MARGIN * 2),
+            height: height + (MESSAGE_MARGIN * 2)
+        };
+
+        for (const messageInfo of activeMessages) {
+            if (!messageInfo.rect) continue; // Skip if no rect info
+
+            if (doRectanglesOverlap(newRect, messageInfo.rect)) {
+                return true; // Overlap detected
+            }
+        }
+
+        return false; // No overlap
+    }
+
+    // Find a non-overlapping position for a new message
+    function findNonOverlappingPosition(width, height, maxX, maxY) {
+        // First strategy: Try completely random positions
+        for (let attempt = 0; attempt < Math.min(20, MAX_PLACEMENT_ATTEMPTS); attempt++) {
+            const x = Math.floor(Math.random() * maxX);
+            const y = Math.floor(Math.random() * maxY);
+
+            if (!checkForOverlap(x, y, width, height)) {
+                return { x, y }; // Found a non-overlapping position
+            }
+        }
+
+        // Second strategy: Try to place in quadrants with fewer messages
+        // Divide the screen into quadrants and count messages in each
+        const quadrants = [
+            { x: 0, y: 0, count: 0 },                  // Top-left
+            { x: maxX / 2, y: 0, count: 0 },            // Top-right
+            { x: 0, y: maxY / 2, count: 0 },            // Bottom-left
+            { x: maxX / 2, y: maxY / 2, count: 0 }      // Bottom-right
+        ];
+
+        // Count messages in each quadrant
+        for (const messageInfo of activeMessages) {
+            if (!messageInfo.rect) continue;
+
+            const rect = messageInfo.rect;
+            const centerX = rect.x + rect.width / 2;
+            const centerY = rect.y + rect.height / 2;
+
+            // Determine which quadrant this message is in
+            const quadrantIndex = (centerX >= maxX / 2 ? 1 : 0) + (centerY >= maxY / 2 ? 2 : 0);
+            quadrants[quadrantIndex].count++;
+        }
+
+        // Sort quadrants by message count (ascending)
+        quadrants.sort((a, b) => a.count - b.count);
+
+        // Try positions in the least crowded quadrants first
+        for (const quadrant of quadrants) {
+            const quadWidth = maxX / 2;
+            const quadHeight = maxY / 2;
+
+            // Try several positions within this quadrant
+            for (let attempt = 0; attempt < 10; attempt++) {
+                const x = Math.floor(quadrant.x + Math.random() * (quadWidth - width));
+                const y = Math.floor(quadrant.y + Math.random() * (quadHeight - height));
+
+                if (!checkForOverlap(x, y, width, height)) {
+                    return { x, y }; // Found a non-overlapping position
+                }
+            }
+        }
+
+        // Third strategy: Grid-based approach with minimal overlap
+        console.log('Could not find non-overlapping position, trying grid approach');
+
+        // Create a grid of potential positions and check each one
+        const gridSize = 5; // 5x5 grid
+        const cellWidth = maxX / gridSize;
+        const cellHeight = maxY / gridSize;
+
+        let bestPosition = { x: 0, y: 0 };
+        let minOverlapCount = Number.MAX_SAFE_INTEGER;
+
+        // Try each cell in the grid
+        for (let i = 0; i < gridSize; i++) {
+            for (let j = 0; j < gridSize; j++) {
+                const x = Math.floor(i * cellWidth);
+                const y = Math.floor(j * cellHeight);
+
+                // Count how many overlaps this position has
+                let overlapCount = 0;
+                const testRect = { x, y, width, height };
+
+                for (const messageInfo of activeMessages) {
+                    if (!messageInfo.rect) continue;
+                    if (doRectanglesOverlap(testRect, messageInfo.rect)) {
+                        overlapCount++;
+                    }
+                }
+
+                // If this position has fewer overlaps, use it
+                if (overlapCount < minOverlapCount) {
+                    minOverlapCount = overlapCount;
+                    bestPosition = { x, y };
+
+                    // If we found a position with no overlaps, use it immediately
+                    if (overlapCount === 0) {
+                        return bestPosition;
+                    }
+                }
+            }
+        }
+
+        // Add some randomness to the best position to avoid stacking
+        bestPosition.x += Math.floor(Math.random() * 20) - 10;
+        bestPosition.y += Math.floor(Math.random() * 20) - 10;
+
+        // Ensure the position is within bounds
+        bestPosition.x = Math.max(0, Math.min(maxX, bestPosition.x));
+        bestPosition.y = Math.max(0, Math.min(maxY, bestPosition.y));
+
+        return bestPosition;
+    }
+
     function positionRandomMessage(messageElement) {
         // Get viewport dimensions
         const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
         const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
-        
+
         // Add to container first (invisible) so we can measure it
         messageElement.style.opacity = '0';
         chatContainer.appendChild(messageElement);
-        
+
         // Get actual message dimensions
         const messageWidth = messageElement.offsetWidth;
         const messageHeight = messageElement.offsetHeight;
-        
+
         // Calculate maximum position values
         const maxX = Math.max(0, viewportWidth - messageWidth);
         const maxY = Math.max(0, viewportHeight - messageHeight);
-        
-        // Generate random position
-        const randomX = Math.floor(Math.random() * maxX);
-        const randomY = Math.floor(Math.random() * maxY);
-        
+
+        // Find a position that doesn't overlap with existing messages
+        const position = findNonOverlappingPosition(messageWidth, messageHeight, maxX, maxY);
+
         // Apply position
-        messageElement.style.left = `${randomX}px`;
-        messageElement.style.top = `${randomY}px`;
-        
-        // Track this message
+        messageElement.style.left = `${position.x}px`;
+        messageElement.style.top = `${position.y}px`;
+
+        // Track this message with its position and dimensions
         const messageInfo = {
             element: messageElement,
-            timeoutId: null
+            timeoutId: null,
+            rect: {
+                x: position.x,
+                y: position.y,
+                width: messageWidth,
+                height: messageHeight
+            }
         };
         activeMessages.push(messageInfo);
-        
+
+        // If debug mode is enabled, visualize the message boundaries
+        if (currentStyles.debugMode) {
+            // Create a debug outline element
+            const debugOutline = document.createElement('div');
+            debugOutline.classList.add('debug-outline');
+            debugOutline.style.position = 'absolute';
+            debugOutline.style.left = `${position.x - MESSAGE_MARGIN}px`;
+            debugOutline.style.top = `${position.y - MESSAGE_MARGIN}px`;
+            debugOutline.style.width = `${messageWidth + (MESSAGE_MARGIN * 2)}px`;
+            debugOutline.style.height = `${messageHeight + (MESSAGE_MARGIN * 2)}px`;
+            debugOutline.style.border = '1px dashed rgba(255, 0, 0, 0.5)';
+            debugOutline.style.pointerEvents = 'none'; // Don't interfere with mouse events
+            debugOutline.style.zIndex = '9'; // Below the actual message
+            chatContainer.appendChild(debugOutline);
+
+            // Store reference to the debug outline for cleanup
+            messageInfo.debugElement = debugOutline;
+        }
+
         // Enforce max messages limit
         while (activeMessages.length > currentStyles.randomMaxMessages) {
             removeOldestMessage();
         }
-        
+
         // Animate in
         setTimeout(() => {
             // Make visible with transition
             messageElement.classList.add('visible');
-            
+
             // Set timeout to remove after duration
             messageInfo.timeoutId = setTimeout(() => {
                 // Start fade out
                 messageElement.classList.remove('visible');
-                
+
                 // Remove after animation completes
                 setTimeout(() => {
                     removeMessage(messageInfo);
                 }, currentStyles.randomAnimationDuration);
-                
+
             }, currentStyles.randomMessageDuration * 1000);
         }, 10);
     }
@@ -203,6 +376,11 @@
         // Remove from DOM if still there
         if (messageInfo.element && messageInfo.element.parentNode) {
             messageInfo.element.parentNode.removeChild(messageInfo.element);
+        }
+
+        // Remove debug outline if it exists
+        if (messageInfo.debugElement && messageInfo.debugElement.parentNode) {
+            messageInfo.debugElement.parentNode.removeChild(messageInfo.debugElement);
         }
 
         // Clear any pending timeout
@@ -327,6 +505,12 @@
             case 'reset_styles':
                 applyStyles(defaultStyles);
                 console.log('Styles reset to defaults');
+                break;
+            case 'toggle_debug':
+                // Toggle debug mode
+                const newDebugMode = !currentStyles.debugMode;
+                applyStyles({ debugMode: newDebugMode });
+                console.log('Debug mode ' + (newDebugMode ? 'enabled' : 'disabled'));
                 break;
             default:
                 console.warn('Unknown overlay command received:', commandData.command);

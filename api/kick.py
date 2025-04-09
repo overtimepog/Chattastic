@@ -4,6 +4,7 @@ import json
 import asyncio
 import os
 import random
+import threading
 from queue import Queue
 # Assuming config.py and globals.py exist and are configured
 import config
@@ -37,6 +38,10 @@ last_processed_index = -1
 polling_active = False
 polling_task = None
 streaming_task = None
+
+# Keep-alive timer thread
+keep_alive_timer = None
+keep_alive_active = False
 # --- Globals End ---
 
 # Removed get_zenrows_browser function as stealth_requests handles this internally
@@ -676,10 +681,52 @@ async def stream_messages(channel_name):
     logger.info(f"Stopped Kick chat message streaming for channel: {channel_name}")
 
 
+def keep_alive_thread_function(interval=1):
+    """Thread function to keep the chat page alive even when minimized.
+
+    This function runs in a separate thread and periodically interacts with the
+    Selenium driver to ensure the chat page stays active and continues to receive
+    new messages, even when the browser window is minimized.
+
+    Args:
+        interval: Time in seconds between keep-alive actions (default: 1)
+    """
+    global selenium_driver, keep_alive_active
+    logger.info(f"Starting keep-alive thread with interval of {interval} seconds")
+
+    while keep_alive_active and selenium_driver:
+        try:
+            # Check if driver is still valid
+            if not selenium_driver or not selenium_driver.session_id:
+                logger.warning("Keep-alive thread detected invalid driver. Stopping.")
+                break
+
+            # Perform a lightweight action to keep the page active
+            # Scroll slightly to trigger activity without disrupting the view
+            logger.debug("Keep-alive thread performing page interaction")
+            selenium_driver.execute_script("window.scrollBy(0, 1);")
+            time.sleep(0.25)  # Short pause
+            selenium_driver.execute_script("window.scrollBy(0, -1);")
+
+            # Alternative: refresh the page if needed (more disruptive but ensures fresh content)
+            # Uncomment if scrolling isn't sufficient
+            # selenium_driver.refresh()
+
+            # Sleep until next interval
+            time.sleep(interval)
+
+        except Exception as e:
+            logger.error(f"Error in keep-alive thread: {str(e)}")
+            time.sleep(1)  # Wait a bit longer on error before retrying
+
+    logger.info("Keep-alive thread stopped")
+
+
 async def connect_kick_chat(channel_name):
     """Connect to Kick chat: Get ID, init persistent Selenium driver, start polling."""
     global selenium_driver # Use the Selenium driver global
     global polling_active, last_processed_index, polling_task, streaming_task
+    global keep_alive_timer, keep_alive_active
 
     if not channel_name or channel_name.isspace():
         logger.warning("Connect Kick chat request missing channel name.")
@@ -806,6 +853,20 @@ async def connect_kick_chat(channel_name):
         config.kick_chat_connected = True
         config.kick_chat_stream = {"channel_id": channel_id, "channel_name": channel_name}
 
+        # Minimize the browser window after successful connection
+        await asyncio.to_thread(selenium_driver.minimize_window)
+        logger.info("Browser window minimized after successful connection.")
+
+        # Start the keep-alive timer thread
+        keep_alive_active = True
+        keep_alive_timer = threading.Thread(
+            target=keep_alive_thread_function,
+            args=(5,),  # 5-second interval
+            daemon=True  # Make it a daemon thread so it exits when the main program exits
+        )
+        keep_alive_timer.start()
+        logger.info("Started keep-alive timer thread")
+
         await globals.manager.broadcast(json.dumps({"type": "kick_chat_connected", "data": {"channel": channel_name}}))
         logger.info(f"Successfully connected to Kick chat: {channel_name}")
         return True
@@ -832,6 +893,7 @@ async def connect_kick_chat(channel_name):
 async def disconnect_kick_chat(driver_already_quit=False):
     """Disconnect from Kick chat, stop tasks. Optionally keeps driver running."""
     global selenium_driver, polling_active, polling_task, streaming_task
+    global keep_alive_active, keep_alive_timer
     # Note: We keep the persistent driver running by default unless shutdown_selenium_driver is called.
 
     if not config.kick_chat_connected and not polling_active:
@@ -842,15 +904,23 @@ async def disconnect_kick_chat(driver_already_quit=False):
     else:
         logger.info(f"Disconnecting from Kick chat: {config.kick_channel_name or 'Unknown'}")
 
-    polling_active = False # Signal loops to stop
+    # Stop all active tasks and threads
+    polling_active = False # Signal polling loops to stop
+    keep_alive_active = False # Signal keep-alive thread to stop
 
-    # Cancel running tasks
+    # Cancel running asyncio tasks
     if polling_task and not polling_task.done():
         polling_task.cancel()
         logger.info("Polling task cancellation requested.")
     if streaming_task and not streaming_task.done():
         streaming_task.cancel()
         logger.info("Streaming task cancellation requested.")
+
+    # Wait for keep-alive thread to finish if it's running
+    if keep_alive_timer and keep_alive_timer.is_alive():
+        logger.info("Waiting for keep-alive thread to stop...")
+        # We don't join the thread here as it might block if the thread is stuck
+        # The daemon=True flag ensures it will be terminated when the program exits
 
     # Wait briefly for tasks
     await asyncio.sleep(0.5)
@@ -866,6 +936,7 @@ async def disconnect_kick_chat(driver_already_quit=False):
     last_processed_index = -1
     polling_task = None
     streaming_task = None
+    keep_alive_timer = None
 
     # Clear message queue
     while not message_queue.empty():

@@ -194,3 +194,24 @@ li {
     margin-top: 8px;
     font-style: italic;
 }
+
+.checkbox-row input[type="checkbox"] {
+    margin: 0 10px;
+}
+
+.help-inline {
+    font-size: 0.85em;
+    color: #666;
+    margin-left: 5px;
+}
+
+.small-button {
+    padding: 4px 8px;
+    font-size: 0.85em;
+    margin: 0 5px;
+    background-color: #6c757d;
+}
+
+.small-button:hover {
+    background-color: #5a6268;
+}
