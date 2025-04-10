@@ -13,7 +13,7 @@
 
    dark mode toggler
 
-   introduce more api endpoints to save settings like obs source dimentions and kick and twitch tokens, to, instead of the docker container, to the actual chattastic folder where run.bat is ran
+   introduce more api endpoints to save settings like obs source dimentions and kick and twitch tokens, to, instead of the docker container, to the actual chattastic folder where run.bat is ran, and have these settings be loaded on startup
 
    allow for users to create new web overlays with its own set of controls and unique url, then allow that data to be saved to the chattastic folder 
 
