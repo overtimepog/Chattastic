@@ -253,121 +253,128 @@ async def get_latest_subscriber(channel_id):
 
 def _parse_kick_message_html(html_content: str):
     """
-    Parses the HTML content of a Kick chat message using BeautifulSoup
-    to extract sender, message text, and emote details.
+    Parses the HTML content of a Kick chat message group using BeautifulSoup
+    based on the observed structure (July 2024).
 
     Args:
-        html_content: The raw outerHTML string of the message element.
+        html_content: The raw outerHTML string of the message's <div class="group..."> element.
 
     Returns:
         A dictionary containing:
         - 'sender': The username of the message sender.
-        - 'message_text': The textual content of the message, with emotes replaced by placeholders like [emote:name].
-        - 'emotes': A list of dictionaries, each containing 'name' and 'url' for an emote found in the message.
-        - 'timestamp': The timestamp string (e.g., '12:31 AM') or None if not found.
+        - 'message_text': The textual content of the message, with emotes replaced by placeholders like [emote:name|id].
+        - 'emotes': A list of dictionaries, each containing 'name', 'url', and 'id' for an emote.
+        - 'timestamp': The timestamp string (e.g., '10:53 PM') or None.
         - 'is_reply': Boolean indicating if it's a reply message.
+        Returns None if essential elements cannot be found.
     """
-    # If the input is already a BeautifulSoup object, use it directly
-    if isinstance(html_content, BeautifulSoup) or isinstance(html_content, Tag):
-        soup = html_content
-    else:
-        # Otherwise parse the HTML string
-        soup = BeautifulSoup(html_content, 'html.parser')
-
-    sender = "System"
-    message_parts = []
-    emotes = []
-    timestamp = None
-    is_reply = False
+    if not html_content:
+        return None
 
     try:
-        # Determine if it's a reply based on the presence of the reply header div
-        reply_header = soup.find('div', class_='text-white/40')
+        # If the input is already a BeautifulSoup object, use it directly
+        if isinstance(html_content, BeautifulSoup) or isinstance(html_content, Tag):
+            soup = html_content
+        else:
+            # Otherwise parse the HTML string
+            soup = BeautifulSoup(html_content, 'html.parser')
+
+        sender = "System"
+        message_parts = []
+        emotes = []
+        timestamp = None
+        is_reply = False
+        main_content_div = None # The div holding the timestamp, user, message span
+
+        # --- Detect Reply and Find Main Content Div ---
+        # Replies have a specific structure with a header div containing "Replying to"
+        # The actual message is in the *next* div sibling.
+        # Look for the reply header using a class and text content check
+        reply_header = soup.find('div', class_='text-white/40', string=lambda t: t and "Replying to" in t)
+
         if reply_header:
             is_reply = True
-            # In replies, the main content div is usually the direct child after the header
+            # In replies, the main content div is the next sibling
             main_content_div = reply_header.find_next_sibling('div')
             if not main_content_div:
-                main_content_div = soup # Fallback if structure is unexpected
+                 logger.warning("Detected reply structure but couldn't find the sibling content div.")
+                 # Fallback: Try finding the standard content div just in case structure is mixed
+                 main_content_div = soup.find('div', class_=lambda x: x and 'betterhover:group-hover:bg-shade-lower' in x.split())
         else:
-            # In standard messages, the main content div is often the root or a direct child
-            main_content_div = soup
+            # Standard message: Find the div that wraps timestamp, user, message
+            # It has many classes, but 'betterhover:group-hover:bg-shade-lower' seems distinct enough
+            is_reply = False
+            main_content_div = soup.find('div', class_=lambda x: x and 'betterhover:group-hover:bg-shade-lower' in x.split())
 
-        # --- Extract Timestamp ---
-        # Replies and standard messages might have slightly different structures for timestamp
+        # If we couldn't find the main content area, we can't proceed reliably
+        if not main_content_div:
+            logger.warning(f"Could not locate the main content div (reply={is_reply}) within the provided HTML snippet.")
+            logger.debug(f"HTML Snippet: {html_content[:500]}...")
+            return None # Indicate parsing failure
+
+        # --- Extract Timestamp (within main_content_div) ---
         ts_el = main_content_div.find('span', class_='text-neutral')
         if ts_el:
             timestamp = ts_el.get_text(strip=True)
 
         # --- Extract Sender ---
-        # Look for the button containing the username
-        # Replies: Often nested deeper
-        # Standard: More direct
-        user_button = main_content_div.find('button', class_='inline font-bold')
+        user_button = main_content_div.find('button', class_='inline font-bold', title=True)
         if user_button:
-            sender = user_button.get('title', user_button.get_text(strip=True))
-        elif main_content_div.find('button', title='BotRix'): # Specific BotRix case
-            sender = "BotRix"
-    except Exception as e:
-        logger.error(f"Error parsing message HTML: {e}")
-        # Return basic info to avoid breaking the message processing
+            sender = user_button['title'] # Use the title attribute
+        else:
+            # Attempt fallback if structure differs slightly (e.g., Bot messages might not use a button)
+            # This part might need adjustment based on how system/bot messages appear
+            logger.debug("Could not find standard user button. Might be system message or structure changed.")
+            # Basic fallback: Look for any element with a title nearby? Less reliable.
 
-    # --- Extract Message Content and Emotes ---
-    try:
-        # Find the span containing the actual message parts (text and emotes)
-        message_span = main_content_div.find('span', class_='font-normal') # Simplified selector, adjust if needed
+        # --- Extract Message Content and Emotes (within main_content_div) ---
+        message_span = main_content_div.find('span', class_='font-normal leading-[1.55]')
         if message_span:
             for element in message_span.children:
                 if isinstance(element, Tag):
-                    # Check if it's an emote span (contains an img)
-                    img_tag = element.find('img', alt=True, src=True)
-                    if img_tag:
-                        try:
+                    # Check if it's an emote wrapper span
+                    if element.name == 'span' and element.has_attr('data-emote-id'):
+                        img_tag = element.find('img', alt=True, src=True)
+                        if img_tag:
                             emote_name = img_tag.get('alt')
                             emote_url = img_tag.get('src')
-                            # Handle case where emote URL doesn't have expected format
-                            if '/emotes/' in emote_url:
-                                emote_id = emote_url.split('/emotes/')[1].split('/')[0]
-                            else:
-                                emote_id = "unknown"
+                            emote_id = element.get('data-emote-id', "unknown")
 
                             if emote_name:
-                                message_parts.append(f"[emote:{emote_name}|{emote_id}]") # Placeholder in text with ID
-                                emotes.append({"name": emote_name, "url": emote_url, "id": emote_id}) # Include ID in emotes data
-                        except Exception as emote_err:
-                            logger.warning(f"Error parsing emote: {emote_err}")
-                            message_parts.append("[emote]") # Generic placeholder if parsing fails
+                                message_parts.append(f"[emote:{emote_name}|{emote_id}]")
+                                emotes.append({"name": emote_name, "url": emote_url, "id": emote_id})
+                            else:
+                                message_parts.append("[emote]") # Placeholder if name is missing
+                        else:
+                            # Span looks like an emote wrapper but missing img? Append placeholder.
+                            message_parts.append("[emote]")
                     else:
-                        # Append other tag text content if necessary, though usually emotes are the main tags
+                        # Append text content of other nested tags (e.g., <a>, <b> if they appear)
                         message_parts.append(element.get_text())
-                else:
-                    # It's a NavigableString (plain text)
-                    message_parts.append(str(element)) # Convert NavigableString to string
+                elif isinstance(element, str): # Check for NavigableString explicitly
+                    # It's plain text
+                    message_parts.append(str(element))
 
         message_text = "".join(message_parts).strip()
 
-        # Fallback if parsing failed to get sender/message but we have some text
-        if sender == "System" and not message_text:
-            full_text = soup.get_text(separator=' ', strip=True)
-            # Basic attempt to split user: message
-            if ':' in full_text:
-                parts = full_text.split(':', 1)
-                potential_user = parts[0].split(']')[-1].strip() # Handle timestamps like [12:31 AM] User
-                if potential_user: sender = potential_user
-                message_text = parts[1].strip()
-            else:
-                message_text = full_text # Use the whole text if no colon
-    except Exception as content_err:
-        logger.error(f"Error extracting message content: {content_err}")
-        message_text = "[Error parsing message content]"
+        # --- Final Check ---
+        # Ensure we have at least a sender, even if message is empty (e.g., user just posted emotes)
+        if sender == "System" and not message_text and not emotes:
+             logger.debug("Parsed message resulted in empty content and System sender. Discarding.")
+             return None # Or return a minimal dict if you want to capture system messages differently
 
-    return {
-        "sender": sender,
-        "message_text": message_text,
-        "emotes": emotes,
-        "timestamp": timestamp,
-        "is_reply": is_reply,
-    }
+        return {
+            "sender": sender,
+            "message_text": message_text,
+            "emotes": emotes,
+            "timestamp": timestamp,
+            "is_reply": is_reply,
+        }
+
+    except Exception as e:
+        logger.exception(f"Critical error parsing message HTML: {e}")
+        logger.debug(f"Failed HTML Snippet: {html_content[:500]}...")
+        return None # Return None on major parsing errors
 
 
 def parse_kick_timestamp(time_str):
@@ -446,110 +453,103 @@ async def poll_messages(channel_name):
         return
 
     logger.info(f"Starting Kick chat DOM polling for channel: {channel_name}")
-    # We're now using BeautifulSoup to parse the entire chat container
+    chat_container_selector = "#chatroom-messages"
 
     while polling_active:
         try:
-            # Check if driver is still alive (basic check)
+            # Check driver liveness
             try:
-                # Accessing current_url is a lightweight way to check session validity
                 _ = await asyncio.to_thread(getattr, selenium_driver, 'current_url')
             except WebDriverException as wd_err:
-                 logger.warning(f"Polling loop detected WebDriverException (driver likely closed): {wd_err}. Stopping.")
-                 polling_active = False
-                 break
+                logger.warning(f"Polling loop detected WebDriverException (driver likely closed): {wd_err}. Stopping.")
+                polling_active = False
+                break
 
-            # Get the entire chat container HTML and use BeautifulSoup to parse it
-            # This avoids stale element references completely
+            chat_container_html = None
             try:
-                # Get the entire chat container HTML in one go
-                try:
-                    chat_container_html = await asyncio.to_thread(
-                        lambda: selenium_driver.find_element(By.CSS_SELECTOR, "#chatroom-messages").get_attribute("outerHTML")
-                    )
+                # Find the main chat container element
+                chat_container_element = await asyncio.to_thread(
+                    lambda: selenium_driver.find_element(By.CSS_SELECTOR, chat_container_selector)
+                )
+                # Get its HTML content
+                chat_container_html = await asyncio.to_thread(
+                    lambda: chat_container_element.get_attribute("outerHTML")
+                )
+                with message_activity_lock:
+                    last_message_time = time.time() # Update activity time
 
-                    # Update last message check time even if no new messages
-                    # This prevents unnecessary refreshes when the chat container exists but is empty
-                    with message_activity_lock:
-                        # Only update if it's been more than 10 seconds since last update
-                        # This ensures we don't mask actual inactivity
-                        if time.time() - last_message_time > 10:
-                            last_message_time = time.time()
-                            logger.debug("Updated last_message_time due to successful container check")
-                except Exception as container_err:
-                    logger.error(f"Error getting chat container HTML: {container_err}")
-                    # Don't update last_message_time here - we want the page to refresh if this keeps failing
-                    await asyncio.sleep(1)  # Wait before retrying
-                    continue
-
-                if not chat_container_html:
-                    logger.debug("No chat container HTML found in current poll cycle.")
-                    await asyncio.sleep(1)  # Wait a bit longer if nothing is found
-                    continue
-
-                # Parse with BeautifulSoup
-                soup = BeautifulSoup(chat_container_html, 'html.parser')
-                message_elements = soup.select('.chat-entry')
-
-                if not message_elements:
-                    logger.debug("No message elements found in current poll cycle.")
-                    await asyncio.sleep(1)  # Wait a bit longer if nothing is found
-                    continue
-
-                logger.info(f"Found {len(message_elements)} message elements to process with BeautifulSoup")
-
-                new_messages_found_in_batch = False
-                max_index_in_batch = last_processed_index
-                messages_to_parse = []
-
-                # Process all messages found in the HTML
-                for element in message_elements:
-                    try:
-                        # Get the data-index attribute
-                        index_str = element.get('data-index')
-                        if not index_str:
-                            continue
-
-                        index = int(index_str)
-
-                        if index > last_processed_index:
-                            new_messages_found_in_batch = True
-                            max_index_in_batch = max(max_index_in_batch, index)
-
-                            # Convert the element to HTML string
-                            outer_html = str(element)
-                            if outer_html:
-                                messages_to_parse.append({"index": index, "html": outer_html})
-                            else:
-                                logger.warning(f"Could not get HTML for element with index {index}")
-                    except (ValueError, AttributeError) as e:
-                        logger.warning(f"Error processing message element: {e}")
-                    except Exception as e:
-                        logger.error(f"Unexpected error processing message element: {e}")
-
-                logger.info(f"Processed {len(messages_to_parse)} new messages with BeautifulSoup")
-            except Exception as e:
-                logger.error(f"Error getting chat container HTML: {e}")
-                await asyncio.sleep(1)  # Wait before retrying
+            except Exception as container_err:
+                logger.warning(f"Error finding or getting HTML for chat container '{chat_container_selector}': {container_err}")
+                await asyncio.sleep(2)
                 continue
 
-            # Parse HTML and queue messages asynchronously
+            if not chat_container_html:
+                logger.debug("No chat container HTML retrieved.")
+                await asyncio.sleep(1)
+                continue
+
+            # --- Parse with BeautifulSoup ---
+            soup = BeautifulSoup(chat_container_html, 'html.parser')
+
+            # Select the divs with data-index directly under the chat container
+            message_index_elements = soup.select(f'{chat_container_selector} div[data-index]')
+
+            if not message_index_elements:
+                logger.debug("No message elements with 'data-index' found.")
+                await asyncio.sleep(1)
+                continue
+
+            logger.debug(f"Found {len(message_index_elements)} potential message elements (with data-index).")
+
+            new_messages_found_in_batch = False
+            max_index_in_batch = last_processed_index
+            messages_to_parse = []
+
+            # Iterate through the elements with data-index
+            for element in message_index_elements:
+                try:
+                    index_str = element.get('data-index')
+                    if not index_str: continue
+
+                    index = int(index_str)
+
+                    if index > last_processed_index:
+                        new_messages_found_in_batch = True
+                        max_index_in_batch = max(max_index_in_batch, index)
+
+                        # Find the inner '.group' div which contains the visible message parts
+                        message_group_element = element.find('div', class_='group')
+                        if message_group_element:
+                            # Get the HTML of this group element to pass to the parser
+                            outer_html = str(message_group_element)
+                            messages_to_parse.append({"index": index, "html": outer_html})
+                        else:
+                            logger.warning(f"Could not find 'div.group' inside element with data-index {index}")
+
+                except ValueError:
+                    logger.warning(f"Could not parse data-index '{index_str}' as integer.")
+                except Exception as e:
+                    logger.error(f"Unexpected error processing message element data-index {index_str if 'index_str' in locals() else 'N/A'}: {e}")
+
+            if not messages_to_parse and message_index_elements:
+                 logger.debug(f"Found {len(message_index_elements)} elements, but none had index > {last_processed_index}")
+
+            # --- Parse HTML and Queue Messages ---
             for item in messages_to_parse:
                 index = item["index"]
-                outer_html = item["html"]
+                group_html = item["html"] # HTML of the <div class="group...">
                 try:
-                    # Parse the HTML using BeautifulSoup (already imported)
-                    parsed_data = _parse_kick_message_html(outer_html)
+                    # Parse the specific group HTML
+                    parsed_data = _parse_kick_message_html(group_html)
 
-                    # Extract data from the parsed result
-                    timestamp_text = parsed_data.get("timestamp", "N/A")
-                    username_text = parsed_data.get("sender", "System")
-                    message_text = parsed_data.get("message_text", "")
-                    emotes_list = parsed_data.get("emotes", [])
-                    is_reply = parsed_data.get("is_reply", False)
+                    # Extract data (handle potential None returns from parser)
+                    timestamp_text = parsed_data.get("timestamp") if parsed_data else "N/A"
+                    username_text = parsed_data.get("sender") if parsed_data else "System"
+                    message_text = parsed_data.get("message_text") if parsed_data else ""
+                    emotes_list = parsed_data.get("emotes", []) if parsed_data else []
+                    is_reply = parsed_data.get("is_reply", False) if parsed_data else False
 
-                    # --- Queue the message ---
-                    # Ensure we have a sender and either text or emotes
+                    # Queue the message if valid
                     if username_text and (message_text or emotes_list or username_text != "System"):
                         msg = {
                             "data_index": index,
@@ -560,39 +560,36 @@ async def poll_messages(channel_name):
                             "is_reply": is_reply,
                         }
                         message_queue.put(msg)
-                        # logger.debug(f"Queued message index {index}: User='{username_text}', Text='{message_text[:30]}...', Emotes={len(emotes_list)}")
+                        # logger.debug(f"Queued message index {index}")
                     else:
-                         logger.debug(f"Skipping queuing message index {index} due to missing sender/content after BS4 parsing.")
+                         logger.debug(f"Skipping queuing message index {index} - insufficient data after parsing.")
 
                 except Exception as parse_err:
                     logger.error(f"Error parsing or queuing message element at index {index}: {str(parse_err)}")
-                    logger.debug(f"Problematic element HTML for index {index}: {outer_html[:500]}...")
+                    logger.debug(f"Problematic element HTML for index {index}: {group_html[:500]}...")
 
-
-            # Update index after processing batch
+            # Update index and activity time
             if new_messages_found_in_batch:
                 last_processed_index = max_index_in_batch
                 logger.info(f"Processed DOM messages up to index {last_processed_index}")
-
-                # Update last message time for activity tracking
                 with message_activity_lock:
                     last_message_time = time.time()
-                    logger.debug(f"Updated last_message_time to {last_message_time}")
+                    # logger.debug(f"Updated last_message_time to {last_message_time}")
 
             await asyncio.sleep(0.8) # Polling interval
 
+        # --- Exception Handling (same as before) ---
         except WebDriverException as e:
-            # More specific handling for closed driver/browser
-            if "disconnected" in str(e).lower() or "session deleted" in str(e).lower() or "no such window" in str(e).lower() or "unable to connect" in str(e).lower():
+             if "disconnected" in str(e).lower() or "session deleted" in str(e).lower() or "no such window" in str(e).lower() or "unable to connect" in str(e).lower():
                  logger.error(f"Persistent Selenium driver connection closed or lost during polling: {str(e)}")
                  polling_active = False
-                 break # Exit loop
-            else:
+                 break
+             else:
                  logger.error(f"Unhandled WebDriverException during DOM polling: {str(e)}")
-                 await asyncio.sleep(5) # Wait before retrying
+                 await asyncio.sleep(5)
         except Exception as e:
-            logger.exception(f"Generic error during DOM message polling loop: {str(e)}") # Use exception for traceback
-            await asyncio.sleep(5) # Wait before retrying
+            logger.exception(f"Generic error during DOM message polling loop: {str(e)}")
+            await asyncio.sleep(5)
 
     logger.info(f"Stopped Kick chat DOM polling for channel: {channel_name}")
 
