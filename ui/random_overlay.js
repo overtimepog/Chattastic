@@ -8,6 +8,15 @@
     // Track active messages for cleanup
     const activeMessages = [];
 
+    // Track displayed message IDs to prevent duplicates
+    const displayedMessageIds = new Set();
+
+    // Message queue for pending messages
+    const messageQueue = [];
+
+    // Maximum number of messages to keep in history
+    const MAX_MESSAGE_HISTORY = 200;
+
     // Maximum attempts to find non-overlapping position
     const MAX_PLACEMENT_ATTEMPTS = 50;
 
@@ -37,57 +46,20 @@
     // Current styles (initialize with defaults)
     let currentStyles = {...defaultStyles};
 
-    function connectWebSocket() {
-        if (reconnectTimeout) {
-            clearTimeout(reconnectTimeout);
-            reconnectTimeout = null;
-        }
+    // Process the next message from the queue
+    function processNextMessage() {
+        // If there are no messages in the queue, do nothing
+        if (messageQueue.length === 0) return;
 
-        if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
-            console.log('WebSocket is already open or connecting.');
-            return;
-        }
+        // Get the next message from the queue
+        const message = messageQueue.shift();
 
-        ws = new WebSocket(wsUrl);
-        console.log('Attempting WebSocket connection...');
-
-        ws.onopen = () => {
-            console.log('WebSocket connection established.');
-            // Clear any previous reconnect timer
-            if (reconnectTimeout) {
-                clearTimeout(reconnectTimeout);
-                reconnectTimeout = null;
-            }
-        };
-
-        ws.onmessage = (event) => {
-            try {
-                const message = JSON.parse(event.data);
-
-                if (message.type === 'kick_chat_message' && message.data) {
-                    addChatMessage(message.data.user, message.data.text, message.data.emotes);
-                } else if (message.type === 'kick_overlay_command' && message.data) {
-                    handleCommand(message.data);
-                }
-            } catch (error) {
-                console.error('Error processing WebSocket message:', error);
-            }
-        };
-
-        ws.onerror = (error) => {
-            console.error('WebSocket error:', error);
-        };
-
-        ws.onclose = (event) => {
-            console.log(`WebSocket closed. Code: ${event.code}, Reason: ${event.reason}. Attempting reconnect...`);
-            ws = null;
-            if (!reconnectTimeout) {
-                reconnectTimeout = setTimeout(connectWebSocket, 5000);
-            }
-        };
+        // Display the message
+        displayChatMessage(message.user, message.text, message.emotes);
     }
 
-    function addChatMessage(sender, messageText, emotes = []) {
+    // Display a chat message in the overlay
+    function displayChatMessage(sender, messageText, emotes = []) {
         if (!chatContainer) return;
 
         const messageElement = document.createElement('div');
@@ -112,7 +84,7 @@
 
             // Split the message by emote placeholders
             // Format is [emote:name|id] or older format [emote:name]
-            const parts = messageText.split(/\\[emote:([^\\]|]+)(?:\\|[^\\]]+)?\\]/);
+            const parts = messageText.split(/\[emote:([^\]|]+)(?:\|[^\]]+)?\]/);
 
             for (let i = 0; i < parts.length; i++) {
                 if (i % 2 === 0) {
@@ -148,6 +120,99 @@
 
         // Position the message randomly
         positionRandomMessage(messageElement);
+    }
+
+    function connectWebSocket() {
+        if (reconnectTimeout) {
+            clearTimeout(reconnectTimeout);
+            reconnectTimeout = null;
+        }
+
+        if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+            console.log('WebSocket is already open or connecting.');
+            return;
+        }
+
+        ws = new WebSocket(wsUrl);
+        console.log('Attempting WebSocket connection...');
+
+        ws.onopen = () => {
+            console.log('WebSocket connection established.');
+            // Clear any previous reconnect timer
+            if (reconnectTimeout) {
+                clearTimeout(reconnectTimeout);
+                reconnectTimeout = null;
+            }
+        };
+
+        ws.onmessage = (event) => {
+            try {
+                const message = JSON.parse(event.data);
+
+                if (message.type === 'kick_chat_message' && message.data) {
+                    // Generate a unique ID for the message if not provided
+                    const messageId = message.data.id ||
+                        `${message.data.user}_${message.data.text}_${message.data.timestamp || Date.now()}`;
+
+                    // Only process if we haven't shown this message before
+                    if (!displayedMessageIds.has(messageId)) {
+                        // Add to our tracking set
+                        displayedMessageIds.add(messageId);
+
+                        // Add to queue for processing
+                        messageQueue.push({
+                            id: messageId,
+                            user: message.data.user,
+                            text: message.data.text,
+                            emotes: message.data.emotes,
+                            timestamp: message.data.timestamp || Date.now()
+                        });
+
+                        // Process the next message from queue
+                        processNextMessage();
+
+                        // Limit the size of our tracking set to prevent memory issues
+                        if (displayedMessageIds.size > MAX_MESSAGE_HISTORY) {
+                            // Convert to array, remove oldest entries, convert back to set
+                            const idsArray = Array.from(displayedMessageIds);
+                            displayedMessageIds.clear();
+                            idsArray.slice(-MAX_MESSAGE_HISTORY).forEach(id => displayedMessageIds.add(id));
+                        }
+                    }
+                } else if (message.type === 'kick_overlay_command' && message.data) {
+                    handleCommand(message.data);
+                }
+            } catch (error) {
+                console.error('Error processing WebSocket message:', error);
+            }
+        };
+
+        ws.onerror = (error) => {
+            console.error('WebSocket error:', error);
+        };
+
+        ws.onclose = (event) => {
+            console.log(`WebSocket closed. Code: ${event.code}, Reason: ${event.reason}. Attempting reconnect...`);
+            ws = null;
+            if (!reconnectTimeout) {
+                reconnectTimeout = setTimeout(connectWebSocket, 5000);
+            }
+        };
+    }
+
+    // Legacy function for backward compatibility
+    function addChatMessage(sender, messageText, emotes = []) {
+        // Generate a unique ID for the message
+        const messageId = `${sender}_${messageText}_${Date.now()}`;
+
+        // Only process if we haven't shown this message before
+        if (!displayedMessageIds.has(messageId)) {
+            // Add to our tracking set
+            displayedMessageIds.add(messageId);
+
+            // Display the message directly
+            displayChatMessage(sender, messageText, emotes);
+        }
     }
 
     // Check if two rectangles overlap

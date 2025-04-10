@@ -38,12 +38,16 @@ document.addEventListener('DOMContentLoaded', () => {
             };
 
             socket.onmessage = (event) => {
-                console.log('Received message:', event.data);
+                // Only log non-screenshot messages to avoid console spam
+                if (!event.data.includes('screenshot_update')) {
+                    console.log('Received message:', event.data);
+                }
                 try {
                     const message = JSON.parse(event.data);
                     handleMessage(message);
                 } catch (error) {
                     console.error('Error parsing message:', error);
+                    console.error('Raw message data:', event.data);
                 }
             };
 
@@ -83,7 +87,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Handle incoming messages
     function handleMessage(message) {
-        console.log('Handling message:', message);
+        // Only log non-screenshot messages to avoid console spam
+        if (message.type !== 'screenshot_update') {
+            console.log('Handling message:', message);
+        }
 
         switch (message.type) {
             case 'initial_status':
@@ -127,6 +134,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (raffleEntriesCount) {
                     raffleEntriesCount.textContent = 'Raffle Entries: 0';
                 }
+                break;
+
+            case 'screenshot_update':
+                // Handle screenshot updates
+                updateDesktopScreenshot(message.data);
                 break;
 
             case 'error':
@@ -508,6 +520,83 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Function to update desktop screenshot from WebSocket message
+    function updateDesktopScreenshot(data) {
+        // Don't log every update to avoid console spam
+        // console.log('Received screenshot update with data:', data);
+
+        const desktopViewImg = document.getElementById('desktop-view-img');
+        const statusIndicator = document.getElementById('connection-status');
+
+        if (desktopViewImg) {
+            // Use the timestamp and update_id from the server to prevent caching
+            const timestamp = data.timestamp || new Date().getTime();
+            const updateId = data.update_id || '';
+            const imagePath = data.path || 'static/screenshots/desktop_view.png';
+
+            // Update connection status indicator if it exists
+            if (statusIndicator) {
+                statusIndicator.textContent = 'Connected';
+                statusIndicator.className = 'status-indicator connected';
+            }
+
+            // Create a new Image object to preload the screenshot
+            const newImg = new Image();
+
+            // Set up error handler
+            newImg.onerror = function(e) {
+                console.error('Error loading screenshot:', e);
+                console.error('Failed URL:', newImg.src);
+
+                // Update status indicator
+                if (statusIndicator) {
+                    statusIndicator.textContent = 'Error';
+                    statusIndicator.className = 'status-indicator error';
+                }
+
+                // Try direct approach as fallback
+                setTimeout(() => {
+                    const fallbackUrl = `/api/screenshot?direct=true&t=${new Date().getTime()}`;
+                    console.log('Trying fallback URL:', fallbackUrl);
+                    desktopViewImg.src = fallbackUrl;
+                }, 200); // Reduced timeout for faster recovery
+            };
+
+            // Set up onload handler to update the visible image only after loading completes
+            newImg.onload = function() {
+                // Update the src of the visible image
+                desktopViewImg.src = newImg.src;
+                // Update the last update time for fallback detection
+                lastUpdateTime = Date.now();
+
+                // Update the last update time display if it exists
+                const lastUpdateTimeDisplay = document.getElementById('last-update-time');
+                if (lastUpdateTimeDisplay) {
+                    lastUpdateTimeDisplay.textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
+                    lastUpdateTimeDisplay.style.color = 'green';
+                }
+            };
+
+            // Construct the URL with the path from the data if available
+            // Try to use the direct path first if it's a full URL
+            let imageUrl;
+            if (imagePath.startsWith('http')) {
+                imageUrl = imagePath;
+            } else {
+                // Otherwise use the API endpoint with timestamp and ID
+                imageUrl = `/api/screenshot?t=${timestamp}&id=${updateId}`;
+            }
+
+            // Set the src to start loading the new image
+            newImg.src = imageUrl;
+        } else {
+            console.error('Desktop view image element not found');
+        }
+    }
+
+    // Global variable for tracking screenshot updates
+    let lastUpdateTime = Date.now();
+
     // Desktop View Functionality
     function initDesktopView() {
         const toggleDesktopViewBtn = document.getElementById('toggle-desktop-view-btn');
@@ -518,26 +607,161 @@ document.addEventListener('DOMContentLoaded', () => {
         let refreshInterval = 1000; // Default 1 second
         let refreshTimer = null;
         let isViewVisible = true; // Start with the view visible
+        let fallbackMode = false; // Use fallback polling if WebSocket updates aren't coming
 
-        // Function to refresh the desktop view image
+        // Function to refresh the desktop view image (fallback method)
         function refreshDesktopView() {
-            // Always refresh the image regardless of visibility
-            // Add a timestamp to prevent caching
-            const timestamp = new Date().getTime();
-            desktopViewImg.src = `/api/screenshot?t=${timestamp}`;
+            if (fallbackMode || (Date.now() - lastUpdateTime > refreshInterval * 3)) {
+                // Use direct polling in fallback mode or if no updates for a while
+                const timestamp = new Date().getTime();
+                console.log('Activating fallback refresh mode at', new Date().toLocaleTimeString());
 
-            // Log to console for debugging
-            console.log('Refreshing desktop view at ' + new Date().toLocaleTimeString());
+                // Update status indicator
+                const statusIndicator = document.getElementById('connection-status');
+                if (statusIndicator) {
+                    statusIndicator.textContent = 'Fallback Mode';
+                    statusIndicator.className = 'status-indicator connecting';
+                }
+
+                // Create a new Image object to preload the screenshot
+                const newImg = new Image();
+
+                // Set up error handler
+                newImg.onerror = function(e) {
+                    console.error('Error loading fallback screenshot:', e);
+                    console.error('Failed fallback URL:', newImg.src);
+
+                    // Update status indicator to show error
+                    if (statusIndicator) {
+                        statusIndicator.textContent = 'Connection Error';
+                        statusIndicator.className = 'status-indicator error';
+                    }
+
+                    // Try again with a different approach after a short delay
+                    setTimeout(() => {
+                        const emergencyUrl = `/api/screenshot?emergency=true&t=${new Date().getTime()}`;
+                        console.log('Trying emergency URL:', emergencyUrl);
+                        desktopViewImg.src = emergencyUrl;
+
+                        // Update the last update time display to show error state
+                        const lastUpdateTimeDisplay = document.getElementById('last-update-time');
+                        if (lastUpdateTimeDisplay) {
+                            lastUpdateTimeDisplay.textContent = `Error loading screenshot. Retrying...`;
+                            lastUpdateTimeDisplay.style.color = 'red';
+                        }
+                    }, 1000);
+                };
+
+                // Set up onload handler to update the visible image only after loading completes
+                newImg.onload = function() {
+                    // Update the src of the visible image
+                    desktopViewImg.src = newImg.src;
+                    // Update the last update time
+                    lastUpdateTime = Date.now();
+                    console.log('Fallback: Refreshed desktop view at ' + new Date().toLocaleTimeString());
+
+                    // Update the last update time display
+                    const lastUpdateTimeDisplay = document.getElementById('last-update-time');
+                    if (lastUpdateTimeDisplay) {
+                        lastUpdateTimeDisplay.textContent = `Fallback update: ${new Date().toLocaleTimeString()}`;
+                        lastUpdateTimeDisplay.style.color = 'orange';
+                    }
+
+                    // Update status indicator
+                    if (statusIndicator) {
+                        statusIndicator.textContent = 'Fallback Active';
+                        statusIndicator.className = 'status-indicator connecting';
+                    }
+                };
+
+                // Set the src to start loading the new image
+                const fallbackUrl = `/api/screenshot?t=${timestamp}&fallback=true`;
+                console.log('Loading fallback screenshot from URL:', fallbackUrl);
+                newImg.src = fallbackUrl;
+            }
         }
 
         // Show desktop view by default
         desktopViewContainer.style.display = 'block';
         toggleDesktopViewBtn.textContent = 'Hide Desktop View';
 
-        // Start refresh timer immediately
-        refreshDesktopView(); // Initial refresh
+        // Initialize connection status
+        const statusIndicator = document.getElementById('connection-status');
+        if (statusIndicator) {
+            statusIndicator.textContent = 'Connecting...';
+            statusIndicator.className = 'status-indicator connecting';
+        }
+
+        // Start fallback timer as a safety measure
         refreshInterval = parseFloat(refreshIntervalInput.value) * 1000;
-        refreshTimer = setInterval(refreshDesktopView, refreshInterval);
+        console.log(`Starting fallback timer with interval: ${refreshInterval * 2}ms`);
+        refreshTimer = setInterval(refreshDesktopView, refreshInterval * 2); // Twice the normal interval as fallback
+
+        // Set up a check to enable fallback mode if no WebSocket updates are received
+        setInterval(() => {
+            const now = Date.now();
+            const timeSinceLastUpdate = now - lastUpdateTime;
+            const statusIndicator = document.getElementById('connection-status');
+
+            // Log status periodically
+            if (timeSinceLastUpdate > 10000) { // Log every 10 seconds if no updates
+                console.log(`Time since last screenshot update: ${(timeSinceLastUpdate/1000).toFixed(1)}s`);
+
+                // Update status indicator to show warning if it's been a while
+                if (statusIndicator && !fallbackMode && timeSinceLastUpdate > 15000) {
+                    statusIndicator.textContent = 'Connection Slow';
+                    statusIndicator.className = 'status-indicator connecting';
+                }
+            }
+
+            if (timeSinceLastUpdate > refreshInterval * 2) {
+                // If no updates for 2x the refresh interval, enable fallback mode
+                if (!fallbackMode) {
+                    console.log('No WebSocket screenshot updates received for ' +
+                              (timeSinceLastUpdate/1000).toFixed(1) + 's, enabling fallback mode');
+                    fallbackMode = true;
+
+                    // Update status indicator
+                    if (statusIndicator) {
+                        statusIndicator.textContent = 'Switching to Fallback';
+                        statusIndicator.className = 'status-indicator connecting';
+                    }
+
+                    // Force an immediate refresh when entering fallback mode
+                    refreshDesktopView();
+                }
+            } else {
+                // If updates are coming in, disable fallback mode
+                if (fallbackMode) {
+                    console.log('WebSocket screenshot updates resumed, disabling fallback mode');
+                    fallbackMode = false;
+
+                    // Update status indicator
+                    if (statusIndicator) {
+                        statusIndicator.textContent = 'Connected';
+                        statusIndicator.className = 'status-indicator connected';
+                    }
+
+                    // Update the last update time display
+                    const lastUpdateTimeDisplay = document.getElementById('last-update-time');
+                    if (lastUpdateTimeDisplay) {
+                        lastUpdateTimeDisplay.textContent = `WebSocket resumed: ${new Date().toLocaleTimeString()}`;
+                        lastUpdateTimeDisplay.style.color = 'green';
+                    }
+                }
+            }
+        }, refreshInterval);
+
+        // Update last update time when a screenshot is loaded
+        desktopViewImg.addEventListener('load', () => {
+            lastUpdateTime = Date.now();
+
+            // Update the last update time display if it exists
+            const lastUpdateTimeDisplay = document.getElementById('last-update-time');
+            if (lastUpdateTimeDisplay) {
+                lastUpdateTimeDisplay.textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
+            }
+        });
 
         // Toggle desktop view visibility
         if (toggleDesktopViewBtn) {
@@ -548,18 +772,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     desktopViewContainer.style.display = 'block';
                     toggleDesktopViewBtn.textContent = 'Hide Desktop View';
 
-                    // Start refresh timer if it's not already running
-                    if (!refreshTimer) {
-                        refreshDesktopView(); // Initial refresh
-                        refreshInterval = parseFloat(refreshIntervalInput.value) * 1000;
-                        refreshTimer = setInterval(refreshDesktopView, refreshInterval);
-                    }
+                    // Force an immediate refresh when showing
+                    const timestamp = new Date().getTime();
+                    desktopViewImg.src = `/api/screenshot?t=${timestamp}`;
                 } else {
                     desktopViewContainer.style.display = 'none';
                     toggleDesktopViewBtn.textContent = 'Show Desktop View';
-
-                    // We'll keep the timer running to maintain up-to-date screenshots
-                    // even when the view is hidden
                 }
             });
         }
@@ -567,16 +785,94 @@ document.addEventListener('DOMContentLoaded', () => {
         // Update refresh interval when changed
         if (refreshIntervalInput) {
             refreshIntervalInput.addEventListener('change', function() {
-                // Always update the refresh interval when changed
+                // Update the refresh interval for both WebSocket and fallback
+                refreshInterval = parseFloat(refreshIntervalInput.value) * 1000;
+
+                // Update the fallback timer
                 if (refreshTimer) {
                     clearInterval(refreshTimer);
-                    refreshInterval = parseFloat(refreshIntervalInput.value) * 1000;
-                    refreshTimer = setInterval(refreshDesktopView, refreshInterval);
+                    refreshTimer = setInterval(refreshDesktopView, refreshInterval * 2);
                     console.log('Updated refresh interval to ' + refreshInterval + 'ms');
                 }
+
+                // Send the new interval to the server
+                sendMessage({
+                    type: 'update_screenshot_interval',
+                    data: { interval: refreshInterval / 1000 } // Convert back to seconds for the server
+                });
             });
         }
     }
+
+    // Add streaming mode functionality
+    let streamingMode = false;
+    let streamingInterval = null;
+
+    // Function to toggle streaming mode
+    window.toggleStreamingMode = function() {
+        streamingMode = !streamingMode;
+        const desktopViewContainer = document.getElementById('desktop-view-container');
+        const statusIndicator = document.getElementById('connection-status');
+
+        if (streamingMode) {
+            // Enable streaming mode
+            if (desktopViewContainer) {
+                desktopViewContainer.classList.add('streaming-mode');
+            }
+
+            if (statusIndicator) {
+                statusIndicator.textContent = 'Streaming';
+                statusIndicator.className = 'status-indicator connected';
+            }
+
+            // Start a more frequent refresh interval for streaming
+            if (streamingInterval) clearInterval(streamingInterval);
+            streamingInterval = setInterval(() => {
+                const timestamp = new Date().getTime();
+                const desktopViewImg = document.getElementById('desktop-view-img');
+                if (desktopViewImg) {
+                    desktopViewImg.src = `/api/screenshot?t=${timestamp}&streaming=true`;
+                }
+            }, 200); // Very frequent updates for smoother streaming
+
+            console.log('Streaming mode enabled');
+        } else {
+            // Disable streaming mode
+            if (desktopViewContainer) {
+                desktopViewContainer.classList.remove('streaming-mode');
+            }
+
+            if (statusIndicator) {
+                statusIndicator.textContent = 'Connected';
+                statusIndicator.className = 'status-indicator connected';
+            }
+
+            // Stop the streaming interval
+            if (streamingInterval) {
+                clearInterval(streamingInterval);
+                streamingInterval = null;
+            }
+
+            console.log('Streaming mode disabled');
+        }
+    };
+
+    // Function for emergency refresh
+    window.emergencyRefresh = function() {
+        const timestamp = new Date().getTime();
+        const desktopViewImg = document.getElementById('desktop-view-img');
+        if (desktopViewImg) {
+            console.log('Emergency refresh triggered');
+            desktopViewImg.src = `/api/screenshot?t=${timestamp}&emergency=true&force=true`;
+
+            // Update status indicator
+            const statusIndicator = document.getElementById('connection-status');
+            if (statusIndicator) {
+                statusIndicator.textContent = 'Refreshing';
+                statusIndicator.className = 'status-indicator connecting';
+            }
+        }
+    };
 
     // Initialize desktop view functionality
     initDesktopView();

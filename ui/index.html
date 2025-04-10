@@ -71,11 +71,6 @@
         </div>
     </div>
 
-    <div id="docker-section">
-        <h2>Docker</h2>
-        <p>View Docker container logs and status.</p>
-        <a href="/docker-logs" class="button" target="_blank">Open Docker Logs</a>
-    </div>
 
     <div id="desktop-view-section">
         <h2>Container Desktop View</h2>
@@ -86,7 +81,24 @@
             <input type="number" id="refresh-interval" value="1" min="0.5" max="10" step="0.5">
         </div>
         <div id="desktop-view-container" style="display: block; margin-top: 10px;">
-            <img id="desktop-view-img" src="/api/screenshot" alt="Container Desktop" style="max-width: 100%; border: 1px solid #ccc;">
+            <div class="desktop-view-header">
+                <div class="status-wrapper">
+                    <span>Status: </span>
+                    <span id="connection-status" class="status-indicator">Connecting...</span>
+                </div>
+                <span id="last-update-time">Waiting for updates...</span>
+            </div>
+
+            <div class="desktop-view-image-container">
+                <img id="desktop-view-img" src="/api/screenshot?t=init" alt="Container Desktop" style="max-width: 100%; border: 1px solid #ccc;"
+                     onerror="console.error('Error loading initial screenshot'); this.src='/api/screenshot?t=' + new Date().getTime() + '&retry=true&emergency=true'">
+            </div>
+
+            <div class="desktop-view-controls">
+                <button onclick="document.getElementById('desktop-view-img').src='/api/screenshot?t=' + new Date().getTime() + '&force=true'">Force Refresh</button>
+                <button onclick="toggleStreamingMode()">Toggle Streaming Mode</button>
+                <button onclick="emergencyRefresh()">Emergency Refresh</button>
+            </div>
         </div>
     </div>
 

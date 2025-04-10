@@ -24,6 +24,12 @@ app.mount("/static", StaticFiles(directory="ui"), name="static")
 class ConnectionManager:
     def __init__(self):
         self.active_connections: list[WebSocket] = []
+        self._broadcast_lock = asyncio.Lock()
+        self._screenshot_queue = asyncio.Queue()
+        self._chat_queue = asyncio.Queue()
+        # Start the broadcast workers
+        asyncio.create_task(self._screenshot_broadcast_worker())
+        asyncio.create_task(self._chat_broadcast_worker())
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
@@ -31,21 +37,72 @@ class ConnectionManager:
         logger.info(f"WebSocket connected: {websocket.client}")
 
     def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
-        logger.info(f"WebSocket disconnected: {websocket.client}")
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+            logger.info(f"WebSocket disconnected: {websocket.client}")
 
     async def send_personal_message(self, message: str, websocket: WebSocket):
-        await websocket.send_text(message)
+        try:
+            await websocket.send_text(message)
+        except Exception as e:
+            logger.error(f"Error sending personal message to {websocket.client}: {e}")
+            # Disconnect problematic client
+            self.disconnect(websocket)
 
     async def broadcast(self, message: str):
-        logger.info(f"Broadcasting message: {message}")
-        for connection in self.active_connections:
+        # Parse the message to determine its type
+        try:
+            msg_data = json.loads(message)
+            msg_type = msg_data.get("type", "")
+
+            # Route screenshot updates to the high-priority queue
+            if msg_type == "screenshot_update" or "desktop_view" in msg_type:
+                await self._screenshot_queue.put(message)
+            # Route chat messages to the regular queue
+            elif msg_type == "kick_chat_message" or "twitch_chat_message" in msg_type:
+                await self._chat_queue.put(message)
+            # All other messages go through the immediate broadcast
+            else:
+                await self._direct_broadcast(message)
+        except json.JSONDecodeError:
+            # If we can't parse the message, just broadcast it directly
+            await self._direct_broadcast(message)
+
+    async def _direct_broadcast(self, message: str):
+        """Immediately broadcast a message to all connections."""
+        async with self._broadcast_lock:
+            logger.debug(f"Direct broadcasting message: {message[:100]}...")
+            for connection in self.active_connections.copy():  # Use copy to avoid modification during iteration
+                try:
+                    await connection.send_text(message)
+                except Exception as e:
+                    logger.error(f"Error sending message to {connection.client}: {e}")
+                    # Disconnect problematic clients
+                    self.disconnect(connection)
+
+    async def _screenshot_broadcast_worker(self):
+        """Worker that processes screenshot messages with high priority."""
+        while True:
             try:
-                await connection.send_text(message)
+                message = await self._screenshot_queue.get()
+                await self._direct_broadcast(message)
+                self._screenshot_queue.task_done()
             except Exception as e:
-                logger.error(f"Error sending message to {connection.client}: {e}")
-                # Optionally disconnect problematic clients
-                # self.disconnect(connection)
+                logger.error(f"Error in screenshot broadcast worker: {e}")
+                await asyncio.sleep(0.1)
+
+    async def _chat_broadcast_worker(self):
+        """Worker that processes chat messages with normal priority."""
+        while True:
+            try:
+                message = await self._chat_queue.get()
+                await self._direct_broadcast(message)
+                self._chat_queue.task_done()
+                # Small delay to allow screenshot messages to be processed
+                await asyncio.sleep(0.01)
+            except Exception as e:
+                logger.error(f"Error in chat broadcast worker: {e}")
+                await asyncio.sleep(0.1)
 
 # Create the manager instance and assign it to the globals module
 globals.manager = ConnectionManager()
@@ -322,6 +379,29 @@ async def handle_ws_message(websocket: WebSocket, message: dict):
             await globals.manager.broadcast(json.dumps(overlay_command))
         # --- End Kick Overlay Control ---
 
+        elif msg_type == "update_screenshot_interval":
+            # Update the screenshot interval
+            try:
+                new_interval = float(msg_data.get("interval", 1.0))
+                # Validate the interval (between 0.1 and 10 seconds)
+                new_interval = max(0.1, min(10.0, new_interval))
+
+                # Update the screenshot interval in the screenshot module
+                screenshot_api.screenshot_interval = new_interval
+                logger.info(f"Updated screenshot interval to {new_interval} seconds")
+
+                # Acknowledge the update
+                await globals.manager.send_personal_message(json.dumps({
+                    "type": "screenshot_interval_updated",
+                    "data": {"interval": new_interval}
+                }), websocket)
+            except (ValueError, TypeError) as e:
+                logger.error(f"Invalid screenshot interval: {e}")
+                await globals.manager.send_personal_message(json.dumps({
+                    "type": "error",
+                    "data": {"message": f"Invalid screenshot interval: {e}"}
+                }), websocket)
+
         else:
             logger.warning(f"Received unhandled WebSocket message type: {msg_type}")
             # await globals.manager.send_personal_message(json.dumps({"type": "error", "data": {"message": f"Unknown command: {msg_type}"}}), websocket)
@@ -441,11 +521,34 @@ async def get_docker_logs():
 
 # Screenshot endpoint
 @app.get("/api/screenshot")
-async def get_screenshot():
+async def get_screenshot(t: str = None, id: str = None, fallback: bool = False, direct: bool = False, emergency: bool = False, retry: bool = False):
     screenshot_path = screenshot_api.get_latest_screenshot()
+
+    # Log request details if it's not a regular update (to avoid log spam)
+    if fallback or direct or emergency or retry:
+        logger.info(f"Screenshot request with params: fallback={fallback}, direct={direct}, emergency={emergency}, retry={retry}")
+
+    # Check if we need to force a new screenshot capture
+    if emergency or retry:
+        try:
+            # Force a new screenshot capture
+            output_path = os.path.join("static", "screenshots", "desktop_view.png")
+            if screenshot_api.capture_screenshot(output_path):
+                screenshot_path = output_path
+                logger.info(f"Emergency screenshot captured successfully: {output_path}")
+        except Exception as e:
+            logger.error(f"Error capturing emergency screenshot: {e}")
+
     if screenshot_path and os.path.exists(screenshot_path):
-        return FileResponse(screenshot_path)
+        # Add cache control headers to prevent caching
+        headers = {
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        }
+        return FileResponse(screenshot_path, headers=headers)
     else:
+        logger.warning(f"Screenshot not found at path: {screenshot_path}")
         return HTMLResponse(content="<html><body><h1>No screenshot available</h1></body></html>", status_code=404)
 
 # --- Application Startup/Shutdown ---

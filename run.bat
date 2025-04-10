@@ -1,23 +1,17 @@
 @echo off
-title CHATTASTIC WEB UI CONSOLE, DONT CLOSE
-echo Checking for Chattastic...
+echo Building and starting Chattastic Docker container...
 
-:: Check for Python installation
-python --version > nul 2>&1
-if %errorlevel% neq 0 (
-    echo Python is not installed. installing Python...
-    :: run python installer
-    python-3.11.0-amd64.exe /passive PrependPath=1
-)
+REM Build the Docker image
+docker-compose build
 
-:: Install dependencies
-echo Installing dependencies...
-python -m pip install -r requirements.txt
+REM Run the container
+docker-compose up -d
 
-:: Run the application using Uvicorn
-echo Starting Chattastic Web UI with FastAPI...
+REM show the logs
+docker-compose logs -f
+
+echo Chattastic Docker container is now running.
 echo Access the web interface at http://localhost:8000
-python run.py
-
-echo Chattastic Web UI has stopped.
-pause
+echo.
+echo To view logs, run: docker-compose logs -f
+echo To stop the container, run: docker-compose down

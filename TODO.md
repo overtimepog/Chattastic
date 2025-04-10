@@ -10,3 +10,11 @@
    ✅ when in upwards mode, the overlays first message gets kind of cut off at the bottom, id like to be able to change to distance from the bottom of the browser source to where the message goes, in the web ui, let the user input what dimentions they're browser source is, and use that to auto adjust the text showing so it fits and looks good inside the dimentions the user gave (COMPLETED)
 
    ✅ create a new checkbox for the overlay, what id like is a new mode for the chat overlay, where instead of messages appear stacked on top of each other, they appear at random places across the browser source with an animation then they disapeer after a user setable time, also allow every aspect of this to be customizable from the webui (COMPLETED)
+
+   dark mode toggler
+
+   introduce more api endpoints to save settings like obs source dimentions and kick and twitch tokens, to, instead of the docker container, to the actual chattastic folder where run.bat is ran
+
+   allow for users to create new web overlays with its own set of controls and unique url, then allow that data to be saved to the chattastic folder 
+
+   make clear what things are triggered by what, ie. in order to get a desktop view you need to connect to a kick chat, and to do that you gotta type in the channel then hit the button

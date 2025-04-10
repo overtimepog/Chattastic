@@ -52,8 +52,7 @@ selenium_driver = None # WebDriver instance for ongoing chat polling
 
 # Thread-safe queue and polling control
 message_queue = Queue()
-last_processed_index = -1
-last_processed_timestamp = None  # Track the last processed message timestamp
+last_processed_index = -1  # Track the last processed message index
 polling_active = False
 polling_task = None
 streaming_task = None
@@ -65,6 +64,12 @@ keep_alive_active = False
 # Message activity tracking
 last_message_time = 0  # Timestamp of last message received
 message_activity_lock = threading.Lock()  # Lock for thread-safe updates
+
+# Message deduplication tracking
+processed_message_ids = set()  # Set to track processed message IDs
+MAX_PROCESSED_IDS = 1000  # Maximum number of message IDs to keep in memory
+MAX_KICK_INDEX = 299  # Maximum index value used by Kick chat (after this, indexes are reused)
+last_processed_timestamps = {}  # Dictionary to track the last processed timestamp for each index
 # --- Globals End ---
 
 # Removed get_zenrows_browser function as stealth_requests handles this internally
@@ -447,7 +452,7 @@ async def wait_for_element_with_retry(driver, by, value, max_retries=2, delay=1,
 
 async def poll_messages(channel_name):
     """Continuously poll for new chat messages using the persistent Selenium driver."""
-    global last_processed_index, last_processed_timestamp, polling_active, selenium_driver, last_message_time
+    global last_processed_index, polling_active, selenium_driver, last_message_time
     if not selenium_driver or not selenium_driver.session_id:
         logger.error("Polling cannot start: Persistent Selenium driver is not initialized or session is invalid.")
         polling_active = False
@@ -524,27 +529,69 @@ async def poll_messages(channel_name):
                     timestamp_element = message_group_element.find('span', class_='text-neutral')
                     current_timestamp = timestamp_element.get_text(strip=True) if timestamp_element else None
 
-                    # Check if this is a new message using both index and timestamp
-                    is_new_message = False
+                    # Extract username for additional uniqueness in message ID
+                    user_button = message_group_element.find('button', class_='inline font-bold', title=True)
+                    username = user_button['title'] if user_button else "unknown"
 
-                    # First check by index
-                    if index > last_processed_index:
-                        is_new_message = True
-                    # If index is the same or lower but we have a timestamp, check if it's a new timestamp
-                    elif current_timestamp and current_timestamp != last_processed_timestamp:
-                        # This handles cases where the index might be reused but the message is actually new
+                    # Extract message content for additional uniqueness
+                    message_span = message_group_element.find('span', class_='font-normal leading-[1.55]')
+                    message_content_preview = ""
+                    if message_span:
+                        message_content_preview = message_span.get_text(strip=True)[:20]  # First 20 chars as preview
+
+                    # Generate a more unique message ID using index, timestamp, username, and content preview
+                    message_id = f"{index}_{current_timestamp}_{username}_{message_content_preview}"
+
+                    # Check if this is a new message by checking if we've seen this ID before
+                    is_new_message = message_id not in processed_message_ids
+
+                    # Special handling for index 299 (max index) and other high indexes that might be reused
+                    if index >= MAX_KICK_INDEX - 5:  # Handle messages near the max index with extra care
+                        if current_timestamp and index in last_processed_timestamps:
+                            # Compare timestamps to determine if this is a new message
+                            last_ts = last_processed_timestamps[index]
+                            # If the timestamp is different, it's likely a new message
+                            if current_timestamp != last_ts:
+                                is_new_message = True
+                                logger.debug(f"New message detected at max index {index} by timestamp change: {last_ts} -> {current_timestamp}")
+                    # As a fallback, also check by index for messages without timestamps
+                    elif not is_new_message and index > last_processed_index:
                         is_new_message = True
 
                     if is_new_message:
                         new_messages_found_in_batch = True
                         max_index_in_batch = max(max_index_in_batch, index)
 
+                        # Add this message ID to our processed set
+                        processed_message_ids.add(message_id)
+
+                        # Update the timestamp tracking for this index
+                        if current_timestamp:
+                            last_processed_timestamps[index] = current_timestamp
+
+                        # Limit the size of our tracking set to prevent memory issues
+                        if len(processed_message_ids) > MAX_PROCESSED_IDS:
+                            # Convert to list, remove oldest entries, convert back to set
+                            processed_message_ids_list = list(processed_message_ids)
+                            processed_message_ids.clear()
+                            processed_message_ids.update(processed_message_ids_list[-MAX_PROCESSED_IDS:])
+
+                        # Limit the size of the timestamps dictionary
+                        if len(last_processed_timestamps) > MAX_PROCESSED_IDS:
+                            # Keep only the most recent entries
+                            temp_dict = {}
+                            for k in sorted(last_processed_timestamps.keys())[-MAX_PROCESSED_IDS:]:
+                                temp_dict[k] = last_processed_timestamps[k]
+                            last_processed_timestamps = temp_dict
+
                         # Get the HTML of this group element to pass to the parser
                         outer_html = str(message_group_element)
                         messages_to_parse.append({
                             "index": index,
                             "html": outer_html,
-                            "timestamp": current_timestamp
+                            "timestamp": current_timestamp,
+                            "message_id": message_id,
+                            "username": username
                         })
 
                 except ValueError:
@@ -553,7 +600,12 @@ async def poll_messages(channel_name):
                     logger.error(f"Unexpected error processing message element data-index {index_str if 'index_str' in locals() else 'N/A'}: {e}")
 
             if not messages_to_parse and message_index_elements:
-                 logger.debug(f"Found {len(message_index_elements)} elements, but none had index > {last_processed_index}")
+                # Check if we have any elements with index 299 (max index)
+                max_index_elements = [el for el in message_index_elements if el.get('data-index') and int(el.get('data-index')) == MAX_KICK_INDEX]
+                if max_index_elements:
+                    logger.debug(f"Found {len(message_index_elements)} elements with {len(max_index_elements)} at max index {MAX_KICK_INDEX}, but no new messages detected by timestamp comparison")
+                else:
+                    logger.debug(f"Found {len(message_index_elements)} elements, but none had index > {last_processed_index} and no new messages at max index")
 
             # --- Parse HTML and Queue Messages ---
             for item in messages_to_parse:
@@ -589,13 +641,12 @@ async def poll_messages(channel_name):
                     logger.error(f"Error parsing or queuing message element at index {index}: {str(parse_err)}")
                     logger.debug(f"Problematic element HTML for index {index}: {group_html[:500]}...")
 
-            # Update index, timestamp, and activity time
+            # Update index and activity time
             if new_messages_found_in_batch:
                 last_processed_index = max_index_in_batch
-                # Update the last processed timestamp if we have messages
+                # Log the number of processed messages
                 if messages_to_parse:
-                    last_processed_timestamp = messages_to_parse[-1].get("timestamp")
-                    logger.info(f"Processed DOM messages up to index {last_processed_index} with timestamp {last_processed_timestamp}")
+                    logger.info(f"Processed {len(messages_to_parse)} DOM messages up to index {last_processed_index}")
                 else:
                     logger.info(f"Processed DOM messages up to index {last_processed_index}")
 
@@ -1000,8 +1051,11 @@ async def connect_kick_chat(channel_name):
         await asyncio.sleep(1) # Short delay
 
     # --- Reset state ---
+    global last_processed_index, processed_message_ids, last_processed_timestamps
     last_processed_index = -1
-    last_processed_timestamp = None
+    processed_message_ids.clear()  # Clear the set of processed message IDs
+    last_processed_timestamps.clear()  # Clear the timestamp tracking dictionary
+    logger.info("Cleared processed message IDs and timestamps tracking")
     config.kick_chat_messages.clear()
     while not message_queue.empty():
         try: message_queue.get_nowait()
@@ -1223,10 +1277,11 @@ async def disconnect_kick_chat(driver_already_quit=False):
     config.kick_chat_stream = None
     config.kick_channel_id = None
     config.kick_channel_name = None
-    # Reset the last processed index and timestamp for message tracking
-    global last_processed_index, last_processed_timestamp
+    # Reset the last processed index and message tracking
+    global last_processed_index, processed_message_ids, last_processed_timestamps
     last_processed_index = -1
-    last_processed_timestamp = None
+    processed_message_ids.clear()  # Clear the set of processed message IDs
+    last_processed_timestamps.clear()  # Clear the timestamp tracking dictionary
     polling_task = None
     streaming_task = None
     keep_alive_timer = None
