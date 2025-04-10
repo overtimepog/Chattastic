@@ -10,6 +10,7 @@ services:
       - ./emote_cache:/app/emote_cache
       - ./debug_screenshots:/app/debug_screenshots
       - ./selenium_chrome_data:/app/selenium_chrome_data
+      - ./:/app/host_settings
       # Uncomment the line below to enable Docker API functionality
       # - /var/run/docker.sock:/var/run/docker.sock
     environment:

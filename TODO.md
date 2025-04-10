@@ -11,10 +11,10 @@
 
    ✅ create a new checkbox for the overlay, what id like is a new mode for the chat overlay, where instead of messages appear stacked on top of each other, they appear at random places across the browser source with an animation then they disapeer after a user setable time, also allow every aspect of this to be customizable from the webui (COMPLETED)
 
-   dark mode toggler
+   ✅ dark mode toggler for the webui (COMPLETED)
 
-   introduce more api endpoints to save settings like obs source dimentions and kick and twitch tokens, to, instead of the docker container, to the actual chattastic folder where run.bat is ran, and have these settings be loaded on startup
+   ✅ introduce more api endpoints to save settings like obs source dimentions and kick and twitch tokens, to, instead of the docker container, to the actual chattastic folder where run.bat is ran, and have these settings be loaded on startup (COMPLETED)
 
-   allow for users to create new web overlays with its own set of controls and unique url, then allow that data to be saved to the chattastic folder 
+   allow for users to create new web overlays with its own set of controls and unique url, then allow that data to be saved to the chattastic folder and loaded via api
 
    make clear what things are triggered by what, ie. in order to get a desktop view you need to connect to a kick chat, and to do that you gotta type in the channel then hit the button

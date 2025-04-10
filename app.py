@@ -137,11 +137,14 @@ from api import twitch as twitch_api # Import the refactored twitch api module
 from api import kick as kick_api # Import the refactored kick api module
 from api import docker as docker_api # Import the Docker API module
 from api import screenshot as screenshot_api # Import the screenshot module
+from api import settings as settings_module # Import the settings module
+from api import settings_api # Import the settings API router
 # TODO: Import audio utils if needed for TTS trigger
 # from utils import audio as audio_utils
 
 app.include_router(auth_router.router, prefix="/api/auth", tags=["authentication"])
 app.include_router(twitch_api.router, prefix="/api/twitch", tags=["twitch"]) # Include Twitch API router
+app.include_router(settings_api.router, prefix="/api/settings", tags=["settings"]) # Include Settings API router
 # Kick API doesn't have a router, control functions are called directly
 
 # --- WebSocket Message Handling ---
@@ -154,6 +157,9 @@ async def handle_ws_message(websocket: WebSocket, message: dict):
     try:
         if msg_type == "get_initial_status":
             # Resend initial status on explicit request
+            # Load current settings
+            current_settings = settings_module.load_settings()
+
             initial_status = {
                 "type": "initial_status",
                 "data": {
@@ -163,6 +169,7 @@ async def handle_ws_message(websocket: WebSocket, message: dict):
                     "kick_channel": config.kick_channel_name,
                     "kick_connected": config.kick_chat_connected,
                     "raffle_entries_count": len(config.entered_users),
+                    "settings": current_settings,
                     # Add twitch connected status if implemented
                 }
             }
@@ -390,6 +397,95 @@ async def handle_ws_message(websocket: WebSocket, message: dict):
                 screenshot_api.screenshot_interval = new_interval
                 logger.info(f"Updated screenshot interval to {new_interval} seconds")
 
+                # Save to settings
+                settings_module.set_setting("screenshot.interval", new_interval)
+                logger.info(f"Saved screenshot interval {new_interval} to settings")
+
+                # Acknowledge the update
+                await globals.manager.send_personal_message(json.dumps({
+                    "type": "screenshot_interval_updated",
+                    "data": {"interval": new_interval}
+                }), websocket)
+            except Exception as e:
+                logger.error(f"Error updating screenshot interval: {e}")
+                await globals.manager.send_personal_message(json.dumps({
+                    "type": "error",
+                    "data": {"message": f"Error updating screenshot interval: {str(e)}"}
+                }), websocket)
+
+        elif msg_type == "update_settings":
+            # Update settings
+            try:
+                new_settings = msg_data.get("settings", {})
+                if new_settings:
+                    updated_settings = settings_module.update_settings(new_settings)
+                    logger.info(f"Updated settings: {updated_settings}")
+
+                    # Broadcast settings update to all clients
+                    await globals.manager.broadcast(json.dumps({
+                        "type": "settings_updated",
+                        "data": updated_settings
+                    }))
+                else:
+                    logger.warning("Update settings request with empty settings data.")
+            except Exception as e:
+                logger.error(f"Error updating settings: {e}")
+                await globals.manager.send_personal_message(json.dumps({
+                    "type": "error",
+                    "data": {"message": f"Error updating settings: {str(e)}"}
+                }), websocket)
+
+        elif msg_type == "get_settings":
+            # Get current settings
+            try:
+                current_settings = settings_module.load_settings()
+                await globals.manager.send_personal_message(json.dumps({
+                    "type": "settings",
+                    "data": current_settings
+                }), websocket)
+            except Exception as e:
+                logger.error(f"Error getting settings: {e}")
+                await globals.manager.send_personal_message(json.dumps({
+                    "type": "error",
+                    "data": {"message": f"Error getting settings: {str(e)}"}
+                }), websocket)
+
+        elif msg_type == "update_obs_dimensions":
+            # Update OBS source dimensions
+            try:
+                width = int(msg_data.get("width", 800))
+                height = int(msg_data.get("height", 600))
+                bottom_margin = int(msg_data.get("bottomMargin", 10))
+
+                # Validate dimensions
+                width = max(100, min(3000, width))
+                height = max(100, min(3000, height))
+                bottom_margin = max(0, min(200, bottom_margin))
+
+                # Update settings
+                obs_settings = {
+                    "obs_source": {
+                        "width": width,
+                        "height": height,
+                        "bottom_margin": bottom_margin
+                    }
+                }
+
+                updated_settings = settings_module.update_settings(obs_settings)
+                logger.info(f"Updated OBS dimensions: {updated_settings['obs_source']}")
+
+                # Broadcast OBS dimensions update to all clients
+                await globals.manager.broadcast(json.dumps({
+                    "type": "obs_dimensions_updated",
+                    "data": updated_settings["obs_source"]
+                }))
+            except Exception as e:
+                logger.error(f"Error updating OBS dimensions: {e}")
+                await globals.manager.send_personal_message(json.dumps({
+                    "type": "error",
+                    "data": {"message": f"Error updating OBS dimensions: {str(e)}"}
+                }), websocket)
+
                 # Acknowledge the update
                 await globals.manager.send_personal_message(json.dumps({
                     "type": "screenshot_interval_updated",
@@ -420,6 +516,9 @@ async def websocket_endpoint(websocket: WebSocket):
     await globals.manager.connect(websocket)
     try:
         # Send initial status when a client connects
+        # Load current settings
+        current_settings = settings_module.load_settings()
+
         initial_status = {
             "type": "initial_status",
             "data": {
@@ -429,6 +528,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 "kick_channel": config.kick_channel_name, # Assuming this holds kick channel
                 "kick_connected": config.kick_chat_connected, # Add kick connection status
                 "raffle_entries_count": len(config.entered_users), # Add raffle entries count
+                "settings": current_settings, # Include current settings
                 # TODO: Add twitch_connected status if implemented
             }
         }
@@ -555,6 +655,10 @@ async def get_screenshot(t: str = None, id: str = None, fallback: bool = False, 
 @app.on_event("startup")
 async def startup_event():
     logger.info("Application starting up...")
+    # Initialize settings module
+    settings_module.initialize()
+    logger.info("Settings module initialized")
+
     # Initialize authentication state
     await auth_router.initialize_auth()
 

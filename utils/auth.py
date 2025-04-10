@@ -12,6 +12,7 @@ from fastapi.responses import RedirectResponse, HTMLResponse
 
 import config
 import globals # For WebSocket manager access
+from api import settings as settings_module # Import the settings module
 
 # Configure logging (can inherit from app or define specifically)
 logger = logging.getLogger(__name__)
@@ -21,70 +22,138 @@ router = APIRouter()
 # --- Token Management ---
 
 def save_tokens(access_token, refresh_token, user_id, user_name):
-    """Saves Twitch tokens to the file."""
+    """Saves Twitch tokens to the file and settings."""
+    token_data = {
+        'access_token': access_token,
+        'refresh_token': refresh_token,
+        'user_id': user_id,
+        'user_name': user_name
+    }
+
+    # Save to file for backward compatibility
     try:
         with open(config.TOKEN_FILE, 'w') as file:
-            json.dump({'access_token': access_token, 'refresh_token': refresh_token, 'user_id': user_id, 'user_name': user_name}, file)
-        logger.info(f"Twitch tokens saved for user {user_name} ({user_id}).")
+            json.dump(token_data, file)
+        logger.info(f"Twitch tokens saved to file for user {user_name} ({user_id}).")
     except IOError as e:
-        logger.error(f"Error saving Twitch tokens to {config.TOKEN_FILE}: {e}")
+        logger.error(f"Error saving Twitch tokens to file {config.TOKEN_FILE}: {e}")
+
+    # Save to settings
+    try:
+        settings_module.update_settings({"auth": {"twitch": token_data}})
+        logger.info(f"Twitch tokens saved to settings for user {user_name} ({user_id}).")
+    except Exception as e:
+        logger.error(f"Error saving Twitch tokens to settings: {e}")
 
 def load_tokens():
-    """Loads Twitch tokens from the file."""
+    """Loads Twitch tokens from settings or file."""
+    # First try to load from settings
+    try:
+        settings = settings_module.load_settings()
+        if 'auth' in settings and 'twitch' in settings['auth']:
+            tokens = settings['auth']['twitch']
+            # Basic validation
+            if tokens and 'access_token' in tokens and 'refresh_token' in tokens and 'user_id' in tokens:
+                logger.info(f"Loaded Twitch tokens from settings for user {tokens.get('user_name')}")
+                return tokens
+    except Exception as e:
+        logger.error(f"Error loading Twitch tokens from settings: {e}")
+
+    # Fall back to file for backward compatibility
     if os.path.exists(config.TOKEN_FILE):
         try:
             with open(config.TOKEN_FILE, 'r') as file:
                 tokens = json.load(file)
                 # Basic validation
                 if tokens and 'access_token' in tokens and 'refresh_token' in tokens and 'user_id' in tokens:
-                     # Optionally validate token expiry here if timestamp is stored
+                    # Optionally validate token expiry here if timestamp is stored
+                    logger.info(f"Loaded Twitch tokens from file for user {tokens.get('user_name')}")
+
+                    # Save to settings for future use
+                    try:
+                        settings_module.update_settings({"auth": {"twitch": tokens}})
+                        logger.info("Migrated Twitch tokens from file to settings")
+                    except Exception as migrate_err:
+                        logger.error(f"Error migrating Twitch tokens to settings: {migrate_err}")
+
                     return tokens
                 else:
                     logger.warning(f"Twitch token file {config.TOKEN_FILE} is missing required fields.")
-                    # Optionally delete invalid file
-                    # os.remove(config.TOKEN_FILE)
                     return None
         except json.JSONDecodeError:
             logger.error(f"Error decoding JSON from {config.TOKEN_FILE}. File might be corrupted.")
-            # Optionally delete corrupted file
-            # os.remove(config.TOKEN_FILE)
             return None
         except IOError as e:
             logger.error(f"Error reading Twitch token file {config.TOKEN_FILE}: {e}")
             return None
+
+    logger.info("No Twitch tokens found in settings or file")
     return None
 
 def save_kick_token(access_token):
-    """Saves Kick token to the file."""
+    """Saves Kick token to the file and settings."""
+    token_data = {'access_token': access_token}
+
+    # Save to file for backward compatibility
     try:
         with open(config.KICK_TOKEN_FILE, 'w') as f:
-            json.dump({'access_token': access_token}, f)
-        logger.info(f"Kick token saved to {config.KICK_TOKEN_FILE}")
+            json.dump(token_data, f)
+        logger.info(f"Kick token saved to file {config.KICK_TOKEN_FILE}")
     except IOError as e:
-        logger.error(f"Error saving Kick token to {config.KICK_TOKEN_FILE}: {e}")
+        logger.error(f"Error saving Kick token to file {config.KICK_TOKEN_FILE}: {e}")
+
+    # Save to settings
+    try:
+        settings_module.update_settings({"auth": {"kick": token_data}})
+        logger.info("Kick token saved to settings")
+    except Exception as e:
+        logger.error(f"Error saving Kick token to settings: {e}")
 
 
 def load_kick_tokens():
-    """Loads Kick tokens from the file."""
+    """Loads Kick tokens from settings or file."""
+    # First try to load from settings
+    try:
+        settings = settings_module.load_settings()
+        if 'auth' in settings and 'kick' in settings['auth']:
+            tokens = settings['auth']['kick']
+            # Basic validation
+            if tokens and 'access_token' in tokens:
+                logger.info("Loaded Kick token from settings")
+                config.KICK_IS_AUTHENTICATED = True # Update status on load
+                return tokens
+    except Exception as e:
+        logger.error(f"Error loading Kick token from settings: {e}")
+
+    # Fall back to file for backward compatibility
     if os.path.exists(config.KICK_TOKEN_FILE):
         try:
             with open(config.KICK_TOKEN_FILE, 'r') as file:
                 tokens = json.load(file)
                 if tokens and 'access_token' in tokens:
                     # No refresh token in Kick PKCE flow typically
+                    logger.info("Loaded Kick token from file")
                     config.KICK_IS_AUTHENTICATED = True # Update status on load
+
+                    # Save to settings for future use
+                    try:
+                        settings_module.update_settings({"auth": {"kick": tokens}})
+                        logger.info("Migrated Kick token from file to settings")
+                    except Exception as migrate_err:
+                        logger.error(f"Error migrating Kick token to settings: {migrate_err}")
+
                     return tokens
                 else:
                     logger.warning(f"Kick token file {config.KICK_TOKEN_FILE} is missing access_token.")
-                    # os.remove(config.KICK_TOKEN_FILE)
                     return None
         except json.JSONDecodeError:
             logger.error(f"Error decoding JSON from {config.KICK_TOKEN_FILE}. File might be corrupted.")
-            # os.remove(config.KICK_TOKEN_FILE)
             return None
         except IOError as e:
             logger.error(f"Error reading Kick token file {config.KICK_TOKEN_FILE}: {e}")
             return None
+
+    logger.info("No Kick token found in settings or file")
     return None
 
 # --- Helper Functions ---
@@ -324,7 +393,7 @@ async def logout():
     config.TWITCH_USER_ID = None
     config.KICK_USER_ID = None # Reset Kick user ID if stored
 
-    # Attempt to delete the tokens files
+    # Attempt to delete the tokens files (for backward compatibility)
     for token_file in [config.TOKEN_FILE, config.KICK_TOKEN_FILE]:
         if os.path.exists(token_file):
             try:
@@ -332,6 +401,20 @@ async def logout():
                 logger.info(f"Deleted token file: {token_file}")
             except OSError as e:
                 logger.error(f"Error deleting token file {token_file}: {e}")
+
+    # Clear tokens from settings
+    try:
+        settings = settings_module.load_settings()
+        if 'auth' in settings:
+            if 'twitch' in settings['auth']:
+                del settings['auth']['twitch']
+                logger.info("Removed Twitch tokens from settings")
+            if 'kick' in settings['auth']:
+                del settings['auth']['kick']
+                logger.info("Removed Kick tokens from settings")
+            settings_module.save_settings(settings)
+    except Exception as e:
+        logger.error(f"Error removing tokens from settings: {e}")
 
     await broadcast_auth_status()
     return {"message": "Logout successful, tokens cleared."}

@@ -5,8 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Chattastic Web UI</title>
     <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
+    <div class="theme-toggle" id="theme-toggle">
+        <i class="fas fa-moon"></i>
+        <span>Dark Mode</span>
+    </div>
+
     <h1>Chattastic Control Panel</h1>
 
     <div id="status-section">
@@ -221,6 +227,47 @@
         </div>
         <button id="apply-overlay-styles-btn">Apply Styles</button>
         <button id="reset-overlay-styles-btn">Reset to Default</button>
+    </div>
+
+    <div id="settings-section">
+        <h2>Settings</h2>
+        <div class="settings-container">
+            <div class="settings-group">
+                <h3>Application Settings</h3>
+                <div id="settings-location-info" class="settings-info">
+                    <p>Checking settings location...</p>
+                </div>
+                <div class="button-group">
+                    <button id="save-settings-btn">Save All Settings</button>
+                    <button id="load-settings-btn">Load Settings</button>
+                </div>
+                <div class="settings-export-import">
+                    <h4>Export/Import Settings</h4>
+                    <p>Export your settings to a file that can be imported into any Chattastic container.</p>
+                    <div class="button-group">
+                        <button id="export-settings-btn">Export Settings</button>
+                        <button id="import-settings-btn">Import Settings</button>
+                    </div>
+                    <div id="export-result" class="settings-result hidden"></div>
+                    <div id="import-form" class="settings-form hidden">
+                        <form id="settings-upload-form" enctype="multipart/form-data">
+                            <input type="file" id="settings-file-input" name="file" accept=".json">
+                            <button type="submit" class="small-button">Upload</button>
+                            <button type="button" id="cancel-import-btn" class="small-button">Cancel</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <div class="settings-group">
+                <h3>Screenshot Settings</h3>
+                <div class="control-row">
+                    <label for="screenshot-interval">Screenshot Interval (sec):</label>
+                    <input type="number" id="screenshot-interval" value="1.0" min="0.1" max="10" step="0.1">
+                    <button id="update-screenshot-interval-btn" class="small-button">Update</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="/static/script.js"></script>

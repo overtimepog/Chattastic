@@ -1,4 +1,110 @@
-/* Add these styles to your existing CSS */
+/* CSS Variables for Theme Support */
+:root {
+    /* Light Theme (Default) */
+    --bg-color: #ffffff;
+    --text-color: #333333;
+    --header-color: #333333;
+    --border-color: #dddddd;
+    --section-bg: #f9f9f9;
+    --input-bg: #ffffff;
+    --button-bg: #4CAF50;
+    --button-color: white;
+    --button-hover: #45a049;
+    --chat-bg: #f9f9f9;
+    --chat-message-odd: #f0f0f0;
+    --status-bg: #f5f5f5;
+    --link-color: #0066cc;
+    --shadow-color: rgba(0, 0, 0, 0.1);
+}
+
+/* Dark Theme */
+[data-theme="dark"] {
+    --bg-color: #222222;
+    --text-color: #e0e0e0;
+    --header-color: #f0f0f0;
+    --border-color: #444444;
+    --section-bg: #333333;
+    --input-bg: #444444;
+    --button-bg: #388E3C;
+    --button-color: #f0f0f0;
+    --button-hover: #2E7D32;
+    --chat-bg: #333333;
+    --chat-message-odd: #3a3a3a;
+    --status-bg: #333333;
+    --link-color: #4fc3f7;
+    --shadow-color: rgba(0, 0, 0, 0.3);
+}
+
+/* Base Styles with Variables */
+body {
+    font-family: Arial, sans-serif;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+    line-height: 1.6;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+h1, h2, h3 {
+    color: var(--header-color);
+}
+
+button {
+    padding: 8px 16px;
+    margin: 5px;
+    cursor: pointer;
+    background-color: var(--button-bg);
+    color: var(--button-color);
+    border: none;
+    border-radius: 4px;
+    transition: background-color 0.2s ease;
+}
+
+button:hover {
+    background-color: var(--button-hover);
+}
+
+input, select {
+    padding: 8px;
+    margin: 5px;
+    background-color: var(--input-bg);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+}
+
+input[type="color"] {
+    height: 30px;
+    padding: 2px;
+}
+
+/* Theme Toggle Button */
+.theme-toggle {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    background-color: var(--button-bg);
+    color: var(--button-color);
+    border-radius: 20px;
+    cursor: pointer;
+    box-shadow: 0 2px 5px var(--shadow-color);
+    transition: all 0.3s ease;
+}
+
+.theme-toggle:hover {
+    background-color: var(--button-hover);
+    transform: translateY(-2px);
+}
+
+.theme-toggle i {
+    margin-right: 5px;
+}
 
 /* Desktop View Styling */
 .desktop-view-header {
@@ -7,8 +113,9 @@
     align-items: center;
     margin-bottom: 10px;
     padding: 5px;
-    background-color: #f5f5f5;
+    background-color: var(--status-bg);
     border-radius: 4px;
+    border: 1px solid var(--border-color);
 }
 
 .status-wrapper {
@@ -42,10 +149,10 @@
 
 .desktop-view-image-container {
     position: relative;
-    border: 1px solid #ddd;
+    border: 1px solid var(--border-color);
     border-radius: 4px;
     overflow: hidden;
-    background-color: #f0f0f0;
+    background-color: var(--section-bg);
     min-height: 200px;
 }
 
@@ -57,92 +164,64 @@
 
 .desktop-view-controls button {
     padding: 5px 10px;
-    background-color: #4CAF50;
-    color: white;
+    background-color: var(--button-bg);
+    color: var(--button-color);
     border: none;
     border-radius: 4px;
     cursor: pointer;
 }
 
 .desktop-view-controls button:hover {
-    background-color: #45a049;
+    background-color: var(--button-hover);
 }
 
 .desktop-view-controls button:active {
-    background-color: #3e8e41;
+    background-color: var(--button-hover);
 }
 
 /* Streaming mode styles */
 .streaming-mode .desktop-view-image-container {
-    border: 2px solid #4CAF50;
+    border: 2px solid var(--button-bg);
 }
 
 #last-update-time {
     font-size: 14px;
-    color: #666;
+    color: var(--text-color);
+    opacity: 0.8;
 }
 
-/* Existing styles */
-body {
-    font-family: Arial, sans-serif;
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 20px;
-    line-height: 1.6;
-}
-
-h1, h2, h3 {
-    color: #333;
-}
-
-button {
-    padding: 8px 16px;
-    margin: 5px;
-    cursor: pointer;
-    background-color: #4CAF50;
-    color: white;
-    border: none;
-    border-radius: 4px;
-}
-
-button:hover {
-    background-color: #45a049;
-}
-
-input, select {
-    padding: 8px;
-    margin: 5px;
-}
+/* Section Styling */
 
 #status-section {
     margin-bottom: 20px;
     padding: 10px;
-    background-color: #f9f9f9;
+    background-color: var(--section-bg);
     border-radius: 5px;
+    border: 1px solid var(--border-color);
 }
 
 .connected {
-    color: green;
+    color: #4CAF50;
     font-weight: bold;
 }
 
 .disconnected, .not-authenticated {
-    color: red;
+    color: #f44336;
     font-weight: bold;
 }
 
 .authenticated {
-    color: green;
+    color: #4CAF50;
     font-weight: bold;
 }
 
 #chat-messages {
     height: 300px;
     overflow-y: auto;
-    border: 1px solid #ddd;
+    border: 1px solid var(--border-color);
     padding: 10px;
     margin-bottom: 20px;
-    background-color: #f9f9f9;
+    background-color: var(--chat-bg);
 }
 
 #chat-messages p {
@@ -152,7 +231,7 @@ input, select {
 }
 
 #chat-messages p:nth-child(odd) {
-    background-color: #f0f0f0;
+    background-color: var(--chat-message-odd);
 }
 
 .chat-emote {
@@ -163,10 +242,10 @@ input, select {
 #all-viewers-list, #selected-viewers-list {
     max-height: 200px;
     overflow-y: auto;
-    border: 1px solid #ddd;
+    border: 1px solid var(--border-color);
     padding: 10px;
     margin-bottom: 10px;
-    background-color: #f9f9f9;
+    background-color: var(--section-bg);
 }
 
 .selection-mode {
@@ -202,6 +281,25 @@ input, select {
     color: white;
 }
 
+/* Dark mode specific adjustments */
+[data-theme="dark"] input[type="color"] {
+    background-color: #444;
+    border-color: #666;
+}
+
+[data-theme="dark"] .status-indicator.connected {
+    background-color: #2E7D32;
+}
+
+[data-theme="dark"] .status-indicator.error {
+    background-color: #C62828;
+}
+
+[data-theme="dark"] .status-indicator.connecting {
+    background-color: #F57F17;
+    color: black;
+}
+
 .overlay-customization {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
@@ -210,10 +308,10 @@ input, select {
 }
 
 .customization-group {
-    border: 1px solid #ddd;
+    border: 1px solid var(--border-color);
     border-radius: 5px;
     padding: 15px;
-    background-color: #f9f9f9;
+    background-color: var(--section-bg);
 }
 
 .control-row {
@@ -233,7 +331,8 @@ input, select {
 
 .help-text {
     font-size: 0.9em;
-    color: #666;
+    color: var(--text-color);
+    opacity: 0.7;
     margin-top: 5px;
 }
 
@@ -248,7 +347,8 @@ input, select {
 .help-inline {
     margin-left: 10px;
     font-size: 0.9em;
-    color: #666;
+    color: var(--text-color);
+    opacity: 0.7;
 }
 
 .small-button {

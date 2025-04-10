@@ -1,11 +1,8 @@
 @echo off
 echo Building and starting Chattastic Docker container...
 
-REM Build the Docker image
-docker-compose build
-
-REM Run the container
-docker-compose up -d
+REM Use --build to rebuild images when changes are detected and run in detached mode
+docker-compose up --build -d
 
 REM show the logs
 docker-compose logs -f

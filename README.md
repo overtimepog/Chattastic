@@ -10,6 +10,8 @@ Chattastic is an innovative tool designed for Twitch and Kick streamers and mode
 - **Web Interface:** Access Chattastic from any device with a web browser.
 - **Filtering Options:** Select viewers based on criteria like VIP status, moderator status, subscriber status, and follower status.
 - **Raffle Mode:** Allow viewers to enter a raffle using the !enter command in chat.
+- **Persistent Settings:** Settings are saved to your local Chattastic folder and persist across restarts.
+- **Chat Overlay:** Display chat messages in your stream with customizable styles and animations.
 
 ## Installation
 
@@ -44,6 +46,20 @@ run_docker_kick_test.bat hasanabi 120
 4. Click "Pick Random Viewer(s)" to select viewers based on your criteria
 5. Use the "Connect Twitch Chat" or "Connect Kick Chat" buttons to connect to chat
 6. Click "Open Viewer Page" to display selected viewers in a separate window
+
+## Settings
+Chattastic now saves settings to your local Chattastic folder, ensuring they persist across restarts and updates. Settings include:
+
+- **Authentication Tokens:** Your Twitch and Kick authentication tokens are securely stored
+- **OBS Source Dimensions:** Set the dimensions of your browser source for optimal display
+- **Overlay Styles:** Customize the appearance of your chat overlay
+- **Screenshot Interval:** Control how frequently the desktop view is updated
+
+To manage settings:
+1. Go to the Settings section in the web interface
+2. Adjust your preferences
+3. Click "Save All Settings" to persist them to your local Chattastic folder
+4. Use "Load Settings" to refresh from the saved file
 
 ## Contributions
 Contributions to Chattastic are welcome. Please fork the repository, make your changes, and submit a pull request :)

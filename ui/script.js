@@ -1,5 +1,52 @@
+// Theme management functions
+function setTheme(themeName) {
+    localStorage.setItem('theme', themeName);
+    document.documentElement.setAttribute('data-theme', themeName);
+
+    // Update toggle button appearance
+    const themeToggle = document.getElementById('theme-toggle');
+    if (themeToggle) {
+        const icon = themeToggle.querySelector('i');
+        const text = themeToggle.querySelector('span');
+
+        if (themeName === 'dark') {
+            icon.className = 'fas fa-sun';
+            text.textContent = 'Light Mode';
+        } else {
+            icon.className = 'fas fa-moon';
+            text.textContent = 'Dark Mode';
+        }
+    }
+}
+
+function toggleTheme() {
+    const currentTheme = localStorage.getItem('theme') || 'light';
+    const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+    setTheme(newTheme);
+}
+
+// Initialize theme from localStorage
+function initTheme() {
+    const savedTheme = localStorage.getItem('theme');
+    if (savedTheme) {
+        setTheme(savedTheme);
+    } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        // Use dark theme if user's system preference is dark
+        setTheme('dark');
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     console.log('DOM content loaded, initializing UI elements');
+
+    // Initialize theme
+    initTheme();
+
+    // Set up theme toggle
+    const themeToggle = document.getElementById('theme-toggle');
+    if (themeToggle) {
+        themeToggle.addEventListener('click', toggleTheme);
+    }
 
     // Get UI elements
     const wsStatus = document.getElementById('ws-status');
@@ -874,9 +921,339 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    // Initialize settings functionality
+    initSettings();
+
     // Initialize desktop view functionality
     initDesktopView();
 
     // Connect to WebSocket
     connectWebSocket();
 });
+
+// Settings management functions
+function initSettings() {
+    console.log('Initializing settings functionality');
+
+    // Get settings elements
+    const saveSettingsBtn = document.getElementById('save-settings-btn');
+    const loadSettingsBtn = document.getElementById('load-settings-btn');
+    const screenshotIntervalInput = document.getElementById('screenshot-interval');
+    const updateScreenshotIntervalBtn = document.getElementById('update-screenshot-interval-btn');
+
+    // Initialize settings from WebSocket initial status
+    function applySettings(settings) {
+        if (!settings) return;
+
+        // Apply screenshot interval
+        if (settings.screenshot && settings.screenshot.interval && screenshotIntervalInput) {
+            screenshotIntervalInput.value = settings.screenshot.interval;
+        }
+
+        // Apply OBS source dimensions
+        if (settings.obs_source) {
+            const widthInput = document.getElementById('overlay-width');
+            const heightInput = document.getElementById('overlay-height');
+            const bottomMarginInput = document.getElementById('overlay-bottom-margin');
+
+            if (widthInput && settings.obs_source.width) {
+                widthInput.value = settings.obs_source.width;
+            }
+
+            if (heightInput && settings.obs_source.height) {
+                heightInput.value = settings.obs_source.height;
+            }
+
+            if (bottomMarginInput && settings.obs_source.bottom_margin) {
+                bottomMarginInput.value = settings.obs_source.bottom_margin;
+            }
+        }
+
+        // Apply random overlay settings
+        if (settings.random_overlay) {
+            const durationInput = document.getElementById('random-message-duration');
+            const animationInput = document.getElementById('random-animation-duration');
+            const maxMessagesInput = document.getElementById('random-max-messages');
+            const debugModeCheckbox = document.getElementById('random-debug-mode');
+
+            if (durationInput && settings.random_overlay.message_duration) {
+                durationInput.value = settings.random_overlay.message_duration;
+            }
+
+            if (animationInput && settings.random_overlay.animation_duration) {
+                animationInput.value = settings.random_overlay.animation_duration;
+            }
+
+            if (maxMessagesInput && settings.random_overlay.max_messages) {
+                maxMessagesInput.value = settings.random_overlay.max_messages;
+            }
+
+            if (debugModeCheckbox && settings.random_overlay.debug_mode !== undefined) {
+                debugModeCheckbox.checked = settings.random_overlay.debug_mode;
+            }
+        }
+    }
+
+    // Get settings location info
+    function getSettingsLocation() {
+        fetch('/api/settings/location')
+            .then(response => response.json())
+            .then(data => {
+                const locationInfo = document.getElementById('settings-location-info');
+                if (locationInfo) {
+                    let infoClass = 'settings-info';
+                    let infoText = '';
+
+                    if (data.is_persistent) {
+                        infoClass += ' success';
+                        infoText = `<strong>Settings are persistent!</strong> They are being stored at: <code>${data.path}</code>`;
+                        if (data.in_docker && data.using_host_dir) {
+                            infoText += '<br>Your settings are saved to the host machine and will persist across container restarts.';
+                        }
+                    } else {
+                        infoClass += ' warning';
+                        infoText = `<strong>Warning: Settings are NOT persistent!</strong> They are stored at: <code>${data.path}</code> inside the container.`;
+                        infoText += '<br>Your settings will be lost when the container is restarted. Please use the Export Settings button to save your settings.';
+                    }
+
+                    locationInfo.className = infoClass;
+                    locationInfo.innerHTML = `<p>${infoText}</p>`;
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching settings location:', error);
+                const locationInfo = document.getElementById('settings-location-info');
+                if (locationInfo) {
+                    locationInfo.className = 'settings-info error';
+                    locationInfo.innerHTML = `<p><strong>Error:</strong> Could not determine settings location. ${error.message}</p>`;
+                }
+            });
+    }
+
+    // Call getSettingsLocation on init
+    getSettingsLocation();
+
+    // Handle WebSocket messages for settings
+    window.addEventListener('websocket-message', (event) => {
+        const message = event.detail;
+
+        if (message.type === 'initial_status' && message.data.settings) {
+            console.log('Received settings from initial status:', message.data.settings);
+            applySettings(message.data.settings);
+        } else if (message.type === 'settings' || message.type === 'settings_updated') {
+            console.log('Received settings update:', message.data);
+            applySettings(message.data);
+        } else if (message.type === 'settings_exported') {
+            console.log('Settings exported:', message.data);
+            const exportResult = document.getElementById('export-result');
+            if (exportResult) {
+                exportResult.innerHTML = `<p><strong>Settings exported successfully!</strong><br>File: <code>${message.data.path}</code></p>`;
+                exportResult.classList.remove('hidden');
+
+                // Hide the result after 10 seconds
+                setTimeout(() => {
+                    exportResult.classList.add('hidden');
+                }, 10000);
+            }
+        } else if (message.type === 'settings_imported') {
+            console.log('Settings imported:', message.data);
+            // Apply the imported settings
+            applySettings(message.data);
+
+            // Show success message
+            showMessage('success', 'Settings imported successfully!');
+
+            // Hide the import form
+            const importForm = document.getElementById('import-form');
+            if (importForm) {
+                importForm.classList.add('hidden');
+            }
+        }
+    });
+
+    // Save all settings
+    if (saveSettingsBtn) {
+        saveSettingsBtn.addEventListener('click', () => {
+            // Collect settings from UI
+            const settings = {
+                obs_source: {
+                    width: parseInt(document.getElementById('overlay-width').value) || 800,
+                    height: parseInt(document.getElementById('overlay-height').value) || 600,
+                    bottom_margin: parseInt(document.getElementById('overlay-bottom-margin').value) || 10
+                },
+                random_overlay: {
+                    message_duration: parseInt(document.getElementById('random-message-duration').value) || 5,
+                    animation_duration: parseInt(document.getElementById('random-animation-duration').value) || 500,
+                    max_messages: parseInt(document.getElementById('random-max-messages').value) || 10,
+                    debug_mode: document.getElementById('random-debug-mode').checked
+                },
+                screenshot: {
+                    interval: parseFloat(document.getElementById('screenshot-interval').value) || 1.0
+                },
+                ui: {
+                    dark_mode: localStorage.getItem('theme') === 'dark'
+                }
+            };
+
+            // Send settings to server
+            if (window.ws && window.ws.readyState === WebSocket.OPEN) {
+                window.ws.send(JSON.stringify({
+                    type: 'update_settings',
+                    data: { settings: settings }
+                }));
+                console.log('Sent settings to server:', settings);
+            } else {
+                console.error('WebSocket not connected, cannot save settings');
+                showMessage('error', 'WebSocket not connected, cannot save settings');
+            }
+        });
+    }
+
+    // Load settings from server
+    if (loadSettingsBtn) {
+        loadSettingsBtn.addEventListener('click', () => {
+            if (window.ws && window.ws.readyState === WebSocket.OPEN) {
+                window.ws.send(JSON.stringify({
+                    type: 'get_settings'
+                }));
+                console.log('Requested settings from server');
+            } else {
+                console.error('WebSocket not connected, cannot load settings');
+                showMessage('error', 'WebSocket not connected, cannot load settings');
+            }
+        });
+    }
+
+    // Update screenshot interval
+    if (updateScreenshotIntervalBtn && screenshotIntervalInput) {
+        updateScreenshotIntervalBtn.addEventListener('click', () => {
+            const interval = parseFloat(screenshotIntervalInput.value);
+            if (isNaN(interval) || interval < 0.1 || interval > 10) {
+                showMessage('error', 'Screenshot interval must be between 0.1 and 10 seconds');
+                return;
+            }
+
+            if (window.ws && window.ws.readyState === WebSocket.OPEN) {
+                window.ws.send(JSON.stringify({
+                    type: 'update_screenshot_interval',
+                    data: { interval: interval }
+                }));
+                console.log('Sent screenshot interval update:', interval);
+            } else {
+                console.error('WebSocket not connected, cannot update screenshot interval');
+                showMessage('error', 'WebSocket not connected, cannot update screenshot interval');
+            }
+        });
+    }
+
+    // Update OBS dimensions when Apply Styles button is clicked
+    const applyStylesBtn = document.getElementById('apply-overlay-styles-btn');
+    if (applyStylesBtn) {
+        applyStylesBtn.addEventListener('click', () => {
+            // Also update OBS dimensions in settings
+            const width = parseInt(document.getElementById('overlay-width').value) || 800;
+            const height = parseInt(document.getElementById('overlay-height').value) || 600;
+            const bottomMargin = parseInt(document.getElementById('overlay-bottom-margin').value) || 10;
+
+            if (window.ws && window.ws.readyState === WebSocket.OPEN) {
+                window.ws.send(JSON.stringify({
+                    type: 'update_obs_dimensions',
+                    data: {
+                        width: width,
+                        height: height,
+                        bottomMargin: bottomMargin
+                    }
+                }));
+                console.log('Sent OBS dimensions update:', { width, height, bottomMargin });
+            }
+        });
+    }
+
+    // Export settings
+    const exportSettingsBtn = document.getElementById('export-settings-btn');
+    if (exportSettingsBtn) {
+        exportSettingsBtn.addEventListener('click', () => {
+            // Call the export API endpoint
+            fetch('/api/settings/export', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Settings exported:', data);
+                if (data.success) {
+                    const exportResult = document.getElementById('export-result');
+                    if (exportResult) {
+                        exportResult.innerHTML = `
+                            <p><strong>Settings exported successfully!</strong></p>
+                            <p>File: <code>${data.path}</code></p>
+                            <p><a href="/api/settings/export/${data.path.split('/').pop()}" class="button" download>Download Settings File</a></p>
+                        `;
+                        exportResult.classList.remove('hidden');
+                    }
+                } else {
+                    showMessage('error', `Failed to export settings: ${data.error || 'Unknown error'}`);
+                }
+            })
+            .catch(error => {
+                console.error('Error exporting settings:', error);
+                showMessage('error', `Error exporting settings: ${error.message}`);
+            });
+        });
+    }
+
+    // Import settings button - show the import form
+    const importSettingsBtn = document.getElementById('import-settings-btn');
+    const importForm = document.getElementById('import-form');
+    if (importSettingsBtn && importForm) {
+        importSettingsBtn.addEventListener('click', () => {
+            importForm.classList.remove('hidden');
+        });
+    }
+
+    // Cancel import button
+    const cancelImportBtn = document.getElementById('cancel-import-btn');
+    if (cancelImportBtn && importForm) {
+        cancelImportBtn.addEventListener('click', () => {
+            importForm.classList.add('hidden');
+        });
+    }
+
+    // Handle settings file upload
+    const settingsUploadForm = document.getElementById('settings-upload-form');
+    if (settingsUploadForm) {
+        settingsUploadForm.addEventListener('submit', (event) => {
+            event.preventDefault();
+
+            const fileInput = document.getElementById('settings-file-input');
+            if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+                showMessage('error', 'Please select a settings file to import');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            fetch('/api/settings/import', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Settings import result:', data);
+                if (data.success) {
+                    showMessage('success', 'Settings imported successfully!');
+                    // Apply the imported settings
+                    applySettings(data.settings);
+                    // Hide the import form
+                    importForm.classList.add('hidden');
+                } else {
+                    showMessage('error', `Failed to import settings: ${data.error || 'Unknown error'}`);
+                }
+            })
+            .catch(error => {
+                console.error('Error importing settings:', error);
+                showMessage('error', `Error importing settings: ${error.message}`);
+            });
+        });
+    }
+}
