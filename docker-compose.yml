@@ -10,8 +10,10 @@ services:
       - ./emote_cache:/app/emote_cache
       - ./debug_screenshots:/app/debug_screenshots
       - ./selenium_chrome_data:/app/selenium_chrome_data
+      # Uncomment the line below to enable Docker API functionality
+      # - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - DISPLAY=:99
       - PYTHONUNBUFFERED=1
-    shm_size: 2g  # Increase shared memory for Chrome
+    shm_size: 4g  # Increase shared memory for Chrome to improve stability
     restart: unless-stopped

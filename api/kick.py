@@ -19,6 +19,14 @@ import requests as standard_requests # Import standard requests for exceptions, 
 # logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s') # Example basic config
 logger = logging.getLogger(__name__)
 
+# Disable noisy Selenium WebDriver debug logs
+logging.getLogger('urllib3').setLevel(logging.WARNING)
+logging.getLogger('selenium').setLevel(logging.WARNING)
+logging.getLogger('undetected_chromedriver').setLevel(logging.WARNING)
+
+# Disable specific WebDriver HTTP client debug messages
+logging.getLogger('selenium.webdriver.remote.remote_connection').setLevel(logging.WARNING)
+
 # Proxy Management Removed
 
 # Import Selenium and undetected_chromedriver
@@ -26,7 +34,17 @@ import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, WebDriverException, NoSuchElementException
+from selenium.common.exceptions import TimeoutException, WebDriverException
+
+# Monkey patch for undetected_chromedriver to fix the 'headless' attribute error
+# This adds a dummy headless property to ChromeOptions to prevent AttributeError
+original_init = uc.ChromeOptions.__init__
+def patched_init(self, *args, **kwargs):
+    original_init(self, *args, **kwargs)
+    # Add a dummy headless property that's always False
+    # This prevents the AttributeError when uc.Chrome checks options.headless
+    self.headless = False
+uc.ChromeOptions.__init__ = patched_init
 
 # --- Globals ---
 # Persistent Selenium driver instance for scraping the live chat DOM
@@ -42,6 +60,10 @@ streaming_task = None
 # Keep-alive timer thread
 keep_alive_timer = None
 keep_alive_active = False
+
+# Message activity tracking
+last_message_time = 0  # Timestamp of last message received
+message_activity_lock = threading.Lock()  # Lock for thread-safe updates
 # --- Globals End ---
 
 # Removed get_zenrows_browser function as stealth_requests handles this internally
@@ -245,76 +267,99 @@ def _parse_kick_message_html(html_content: str):
         - 'timestamp': The timestamp string (e.g., '12:31 AM') or None if not found.
         - 'is_reply': Boolean indicating if it's a reply message.
     """
-    soup = BeautifulSoup(html_content, 'html.parser')
+    # If the input is already a BeautifulSoup object, use it directly
+    if isinstance(html_content, BeautifulSoup) or isinstance(html_content, Tag):
+        soup = html_content
+    else:
+        # Otherwise parse the HTML string
+        soup = BeautifulSoup(html_content, 'html.parser')
+
     sender = "System"
     message_parts = []
     emotes = []
     timestamp = None
     is_reply = False
 
-    # Determine if it's a reply based on the presence of the reply header div
-    reply_header = soup.find('div', class_='text-white/40')
-    if reply_header:
-        is_reply = True
-        # In replies, the main content div is usually the direct child after the header
-        main_content_div = reply_header.find_next_sibling('div')
-        if not main_content_div:
-             main_content_div = soup # Fallback if structure is unexpected
-    else:
-        # In standard messages, the main content div is often the root or a direct child
-        main_content_div = soup
+    try:
+        # Determine if it's a reply based on the presence of the reply header div
+        reply_header = soup.find('div', class_='text-white/40')
+        if reply_header:
+            is_reply = True
+            # In replies, the main content div is usually the direct child after the header
+            main_content_div = reply_header.find_next_sibling('div')
+            if not main_content_div:
+                main_content_div = soup # Fallback if structure is unexpected
+        else:
+            # In standard messages, the main content div is often the root or a direct child
+            main_content_div = soup
 
-    # --- Extract Timestamp ---
-    # Replies and standard messages might have slightly different structures for timestamp
-    ts_el = main_content_div.find('span', class_='text-neutral')
-    if ts_el:
-        timestamp = ts_el.get_text(strip=True)
+        # --- Extract Timestamp ---
+        # Replies and standard messages might have slightly different structures for timestamp
+        ts_el = main_content_div.find('span', class_='text-neutral')
+        if ts_el:
+            timestamp = ts_el.get_text(strip=True)
 
-    # --- Extract Sender ---
-    # Look for the button containing the username
-    # Replies: Often nested deeper
-    # Standard: More direct
-    user_button = main_content_div.find('button', class_='inline font-bold')
-    if user_button:
-        sender = user_button.get('title', user_button.get_text(strip=True))
-    elif main_content_div.find('button', title='BotRix'): # Specific BotRix case
-         sender = "BotRix"
+        # --- Extract Sender ---
+        # Look for the button containing the username
+        # Replies: Often nested deeper
+        # Standard: More direct
+        user_button = main_content_div.find('button', class_='inline font-bold')
+        if user_button:
+            sender = user_button.get('title', user_button.get_text(strip=True))
+        elif main_content_div.find('button', title='BotRix'): # Specific BotRix case
+            sender = "BotRix"
+    except Exception as e:
+        logger.error(f"Error parsing message HTML: {e}")
+        # Return basic info to avoid breaking the message processing
 
     # --- Extract Message Content and Emotes ---
-    # Find the span containing the actual message parts (text and emotes)
-    message_span = main_content_div.find('span', class_='font-normal') # Simplified selector, adjust if needed
-    if message_span:
-        for element in message_span.children:
-            if isinstance(element, Tag):
-                # Check if it's an emote span (contains an img)
-                img_tag = element.find('img', alt=True, src=True)
-                if img_tag:
-                    emote_name = img_tag.get('alt')
-                    emote_url = img_tag.get('src')
-                    emote_id = emote_url.split('/emotes/')[1].split('/')[0]
-                    if emote_name:
-                        message_parts.append(f"[emote:{emote_name}|{emote_id}]") # Placeholder in text with ID
-                        emotes.append({"name": emote_name, "url": emote_url, "id": emote_id}) # Include ID in emotes data
+    try:
+        # Find the span containing the actual message parts (text and emotes)
+        message_span = main_content_div.find('span', class_='font-normal') # Simplified selector, adjust if needed
+        if message_span:
+            for element in message_span.children:
+                if isinstance(element, Tag):
+                    # Check if it's an emote span (contains an img)
+                    img_tag = element.find('img', alt=True, src=True)
+                    if img_tag:
+                        try:
+                            emote_name = img_tag.get('alt')
+                            emote_url = img_tag.get('src')
+                            # Handle case where emote URL doesn't have expected format
+                            if '/emotes/' in emote_url:
+                                emote_id = emote_url.split('/emotes/')[1].split('/')[0]
+                            else:
+                                emote_id = "unknown"
+
+                            if emote_name:
+                                message_parts.append(f"[emote:{emote_name}|{emote_id}]") # Placeholder in text with ID
+                                emotes.append({"name": emote_name, "url": emote_url, "id": emote_id}) # Include ID in emotes data
+                        except Exception as emote_err:
+                            logger.warning(f"Error parsing emote: {emote_err}")
+                            message_parts.append("[emote]") # Generic placeholder if parsing fails
+                    else:
+                        # Append other tag text content if necessary, though usually emotes are the main tags
+                        message_parts.append(element.get_text())
                 else:
-                    # Append other tag text content if necessary, though usually emotes are the main tags
-                    message_parts.append(element.get_text())
+                    # It's a NavigableString (plain text)
+                    message_parts.append(str(element)) # Convert NavigableString to string
+
+        message_text = "".join(message_parts).strip()
+
+        # Fallback if parsing failed to get sender/message but we have some text
+        if sender == "System" and not message_text:
+            full_text = soup.get_text(separator=' ', strip=True)
+            # Basic attempt to split user: message
+            if ':' in full_text:
+                parts = full_text.split(':', 1)
+                potential_user = parts[0].split(']')[-1].strip() # Handle timestamps like [12:31 AM] User
+                if potential_user: sender = potential_user
+                message_text = parts[1].strip()
             else:
-                # It's a NavigableString (plain text)
-                message_parts.append(str(element)) # Convert NavigableString to string
-
-    message_text = "".join(message_parts).strip()
-
-    # Fallback if parsing failed to get sender/message but we have some text
-    if sender == "System" and not message_text:
-         full_text = soup.get_text(separator=' ', strip=True)
-         # Basic attempt to split user: message
-         if ':' in full_text:
-              parts = full_text.split(':', 1)
-              potential_user = parts[0].split(']')[-1].strip() # Handle timestamps like [12:31 AM] User
-              if potential_user: sender = potential_user
-              message_text = parts[1].strip()
-         else:
-              message_text = full_text # Use the whole text if no colon
+                message_text = full_text # Use the whole text if no colon
+    except Exception as content_err:
+        logger.error(f"Error extracting message content: {content_err}")
+        message_text = "[Error parsing message content]"
 
     return {
         "sender": sender,
@@ -394,14 +439,14 @@ async def wait_for_element_with_retry(driver, by, value, max_retries=2, delay=1,
 
 async def poll_messages(channel_name):
     """Continuously poll for new chat messages using the persistent Selenium driver."""
-    global last_processed_index, polling_active, selenium_driver
+    global last_processed_index, polling_active, selenium_driver, last_message_time
     if not selenium_driver or not selenium_driver.session_id:
         logger.error("Polling cannot start: Persistent Selenium driver is not initialized or session is invalid.")
         polling_active = False
         return
 
     logger.info(f"Starting Kick chat DOM polling for channel: {channel_name}")
-    message_selector = "div#chatroom-messages > div.relative > div[data-index]" # CSS Selector for message wrappers
+    # We're now using BeautifulSoup to parse the entire chat container
 
     while polling_active:
         try:
@@ -414,48 +459,79 @@ async def poll_messages(channel_name):
                  polling_active = False
                  break
 
-            # Wrap synchronous find_elements in asyncio.to_thread
-            message_elements = await asyncio.to_thread(selenium_driver.find_elements, By.CSS_SELECTOR, message_selector)
+            # Get the entire chat container HTML and use BeautifulSoup to parse it
+            # This avoids stale element references completely
+            try:
+                # Get the entire chat container HTML in one go
+                try:
+                    chat_container_html = await asyncio.to_thread(
+                        lambda: selenium_driver.find_element(By.CSS_SELECTOR, "#chatroom-messages").get_attribute("outerHTML")
+                    )
 
-            if not message_elements:
-                # logger.debug("No message elements found in current poll cycle.")
-                await asyncio.sleep(1) # Wait a bit longer if nothing is found
-                continue
+                    # Update last message check time even if no new messages
+                    # This prevents unnecessary refreshes when the chat container exists but is empty
+                    with message_activity_lock:
+                        # Only update if it's been more than 10 seconds since last update
+                        # This ensures we don't mask actual inactivity
+                        if time.time() - last_message_time > 10:
+                            last_message_time = time.time()
+                            logger.debug("Updated last_message_time due to successful container check")
+                except Exception as container_err:
+                    logger.error(f"Error getting chat container HTML: {container_err}")
+                    # Don't update last_message_time here - we want the page to refresh if this keeps failing
+                    await asyncio.sleep(1)  # Wait before retrying
+                    continue
 
-            new_messages_found_in_batch = False
-            max_index_in_batch = last_processed_index
+                if not chat_container_html:
+                    logger.debug("No chat container HTML found in current poll cycle.")
+                    await asyncio.sleep(1)  # Wait a bit longer if nothing is found
+                    continue
 
-            # Process elements synchronously within the thread to avoid excessive thread switching
-            # This requires careful handling if parsing itself becomes very slow
-            def process_batch(elements, current_last_index):
-                processed_messages = []
-                max_idx = current_last_index
-                new_found = False
-                for element in elements:
+                # Parse with BeautifulSoup
+                soup = BeautifulSoup(chat_container_html, 'html.parser')
+                message_elements = soup.select('.chat-entry')
+
+                if not message_elements:
+                    logger.debug("No message elements found in current poll cycle.")
+                    await asyncio.sleep(1)  # Wait a bit longer if nothing is found
+                    continue
+
+                logger.info(f"Found {len(message_elements)} message elements to process with BeautifulSoup")
+
+                new_messages_found_in_batch = False
+                max_index_in_batch = last_processed_index
+                messages_to_parse = []
+
+                # Process all messages found in the HTML
+                for element in message_elements:
                     try:
-                        index_str = element.get_attribute("data-index")
-                        if not index_str: continue
+                        # Get the data-index attribute
+                        index_str = element.get('data-index')
+                        if not index_str:
+                            continue
+
                         index = int(index_str)
 
-                        if index > current_last_index:
-                            new_found = True
-                            max_idx = max(max_idx, index)
-                            # Get the raw HTML of the message element
-                            outer_html = element.get_attribute("outerHTML")
-                            if outer_html:
-                                processed_messages.append({"index": index, "html": outer_html})
-                            else:
-                                logger.warning(f"Could not get outerHTML for element with index {index}")
-                    except (ValueError, NoSuchElementException, WebDriverException) as el_err:
-                        logger.warning(f"Error getting attributes for a message element: {el_err}")
-                    except Exception as gen_err: # Catch unexpected errors during attribute access
-                        logger.error(f"Unexpected error getting attributes for element: {gen_err}")
-                return processed_messages, max_idx, new_found
+                        if index > last_processed_index:
+                            new_messages_found_in_batch = True
+                            max_index_in_batch = max(max_index_in_batch, index)
 
-            # Run the batch processing in a thread
-            messages_to_parse, max_index_in_batch, new_messages_found_in_batch = await asyncio.to_thread(
-                process_batch, message_elements, last_processed_index
-            )
+                            # Convert the element to HTML string
+                            outer_html = str(element)
+                            if outer_html:
+                                messages_to_parse.append({"index": index, "html": outer_html})
+                            else:
+                                logger.warning(f"Could not get HTML for element with index {index}")
+                    except (ValueError, AttributeError) as e:
+                        logger.warning(f"Error processing message element: {e}")
+                    except Exception as e:
+                        logger.error(f"Unexpected error processing message element: {e}")
+
+                logger.info(f"Processed {len(messages_to_parse)} new messages with BeautifulSoup")
+            except Exception as e:
+                logger.error(f"Error getting chat container HTML: {e}")
+                await asyncio.sleep(1)  # Wait before retrying
+                continue
 
             # Parse HTML and queue messages asynchronously
             for item in messages_to_parse:
@@ -498,8 +574,10 @@ async def poll_messages(channel_name):
                 last_processed_index = max_index_in_batch
                 logger.info(f"Processed DOM messages up to index {last_processed_index}")
 
-                last_processed_index = max_index_in_batch
-                logger.info(f"Processed DOM messages up to index {last_processed_index}")
+                # Update last message time for activity tracking
+                with message_activity_lock:
+                    last_message_time = time.time()
+                    logger.debug(f"Updated last_message_time to {last_message_time}")
 
             await asyncio.sleep(0.8) # Polling interval
 
@@ -681,19 +759,32 @@ async def stream_messages(channel_name):
     logger.info(f"Stopped Kick chat message streaming for channel: {channel_name}")
 
 
-def keep_alive_thread_function(interval=1):
+def keep_alive_thread_function(interval=10):
     """Thread function to keep the chat page alive even when minimized.
-    Enhanced for Docker/Xvfb environments where window focus works differently."""
-    global selenium_driver, keep_alive_active
+    Enhanced for Docker/Xvfb environments where window focus works differently.
+    Only refreshes the page if no messages have been received for a certain period."""
+    global selenium_driver, keep_alive_active, last_message_time
     logger.info(f"Starting keep-alive thread with interval of {interval} seconds")
 
     # Track time for periodic refresh
     last_refresh_time = time.time()
-    refresh_interval = 30  # Refresh page every 30 seconds (reduced from 60)
+    refresh_interval = 60  # Refresh page every 60 seconds if needed
     # Alert interval is not needed in Docker/Xvfb as there's no real window focus
     # but we'll keep the variable for code structure
     last_interaction_time = time.time()
-    interaction_interval = 5  # Interact with the page every 5 seconds
+    interaction_interval = 10  # Interact with the page every 10 seconds (reduced frequency)
+
+    # Initialize last_message_time if it's not set
+    with message_activity_lock:
+        if last_message_time == 0:
+            last_message_time = time.time()
+
+    # Number of consecutive refresh failures
+    consecutive_refresh_failures = 0
+    max_refresh_failures = 3  # Maximum number of consecutive failures before trying a different approach
+
+    # Message inactivity threshold before refreshing (in seconds)
+    message_inactivity_threshold = 30  # Only refresh if no messages for 30 seconds
 
     while keep_alive_active and selenium_driver:
         try:
@@ -704,19 +795,62 @@ def keep_alive_thread_function(interval=1):
 
             current_time = time.time()
 
-            # Periodic page refresh to ensure chat stays active
-            if current_time - last_refresh_time >= refresh_interval:
+            # Check if we need to refresh the page
+            refresh_needed = False
+            message_inactive_duration = 0
+
+            # Check message activity with thread safety
+            with message_activity_lock:
+                message_inactive_duration = current_time - last_message_time
+                # Only refresh if no messages for a while AND it's time for a refresh
+                if (message_inactive_duration >= message_inactivity_threshold and
+                    current_time - last_refresh_time >= refresh_interval):
+                    refresh_needed = True
+                    logger.info(f"Refresh needed due to message inactivity for {message_inactive_duration:.1f}s and {current_time - last_refresh_time:.1f}s since last refresh")
+
+            # Periodic page refresh only if needed (no recent messages)
+            if refresh_needed:
                 try:
-                    logger.info("Performing periodic page refresh to keep chat active")
+                    logger.info(f"Performing page refresh after {message_inactive_duration:.1f}s of message inactivity")
+
+                    # Check if chat container exists before refreshing
+                    try:
+                        selenium_driver.find_element(By.CSS_SELECTOR, "#chatroom-messages")
+                        logger.info("Chat container found before refresh")
+                    except Exception:
+                        logger.warning("Chat container not found before refresh attempt - page may need navigation instead of refresh")
+
                     # Refresh the page
                     selenium_driver.refresh()
-                    # Wait for chat container to reappear
-                    WebDriverWait(selenium_driver, 15).until(  # Increased timeout for Docker
-                        EC.visibility_of_element_located((By.CSS_SELECTOR, "#chatroom-messages"))
-                    )
-                    last_refresh_time = current_time
-                    logger.info("Page refreshed successfully")
+
+                    # Wait for chat container to reappear with better error handling
+                    try:
+                        WebDriverWait(selenium_driver, 15).until(  # Increased timeout for Docker
+                            EC.visibility_of_element_located((By.CSS_SELECTOR, "#chatroom-messages"))
+                        )
+                        # Update refresh time tracking
+                        last_refresh_time = current_time
+                        consecutive_refresh_failures = 0  # Reset failure counter on success
+                        logger.info("Page refreshed successfully, chat container found")
+                    except Exception as wait_err:
+                        consecutive_refresh_failures += 1
+                        logger.error(f"Error waiting for chat container after refresh: {wait_err}")
+
+                        # If multiple failures, try navigating to the page instead of just refreshing
+                        if consecutive_refresh_failures >= max_refresh_failures:
+                            try:
+                                logger.warning(f"After {consecutive_refresh_failures} refresh failures, trying to navigate to page")
+                                current_url = selenium_driver.current_url
+                                selenium_driver.get(current_url)
+                                WebDriverWait(selenium_driver, 20).until(
+                                    EC.visibility_of_element_located((By.CSS_SELECTOR, "#chatroom-messages"))
+                                )
+                                logger.info("Successfully navigated to page and found chat container")
+                                consecutive_refresh_failures = 0  # Reset on success
+                            except Exception as nav_err:
+                                logger.error(f"Navigation attempt also failed: {nav_err}")
                 except Exception as refresh_err:
+                    consecutive_refresh_failures += 1
                     logger.error(f"Error during page refresh: {refresh_err}")
 
             # Regular interaction with the page (instead of alerts which may not work in Docker/Xvfb)
@@ -725,13 +859,37 @@ def keep_alive_thread_function(interval=1):
                     logger.debug("Performing page interaction to maintain activity")
                     # Instead of alerts, we'll use more reliable DOM interactions
 
-                    # Scroll chat container to trigger activity
+                    # Use a more robust JavaScript interaction that's less likely to cause stale element issues
                     selenium_driver.execute_script("""
-                        const chatContainer = document.getElementById('chatroom-messages');
-                        if (chatContainer) {
-                            const currentScroll = chatContainer.scrollTop;
-                            chatContainer.scrollTop = currentScroll + 1;
-                            setTimeout(() => chatContainer.scrollTop = currentScroll, 100);
+                        try {
+                            // Try multiple methods to keep the page active
+                            // 1. Scroll the chat container slightly
+                            const chatContainer = document.getElementById('chatroom-messages');
+                            if (chatContainer) {
+                                const currentScroll = chatContainer.scrollTop;
+                                chatContainer.scrollTop = currentScroll + 1;
+                                setTimeout(() => { chatContainer.scrollTop = currentScroll; }, 100);
+                            }
+
+                            // 2. Move mouse cursor slightly (simulation)
+                            const event = new MouseEvent('mousemove', {
+                                'view': window,
+                                'bubbles': true,
+                                'cancelable': true,
+                                'clientX': Math.random() * window.innerWidth,
+                                'clientY': Math.random() * window.innerHeight
+                            });
+                            document.dispatchEvent(event);
+
+                            // 3. Focus on the chat input if it exists
+                            const chatInput = document.querySelector('.chat-input');
+                            if (chatInput) {
+                                chatInput.focus();
+                                setTimeout(() => { document.body.focus(); }, 100);
+                            }
+                        } catch(e) {
+                            // Silently fail if any part errors
+                            console.error('Keep-alive interaction error:', e);
                         }
                     """)
 
@@ -801,7 +959,7 @@ async def connect_kick_chat(channel_name):
     """Connect to Kick chat: Get ID, init persistent Selenium driver, start polling."""
     global selenium_driver # Use the Selenium driver global
     global polling_active, last_processed_index, polling_task, streaming_task
-    global keep_alive_timer, keep_alive_active
+    global keep_alive_timer, keep_alive_active, last_message_time
 
     if not channel_name or channel_name.isspace():
         logger.warning("Connect Kick chat request missing channel name.")
@@ -853,17 +1011,19 @@ async def connect_kick_chat(channel_name):
             def start_driver():
                 options = uc.ChromeOptions()
                 # Avoid using headless mode with undetected-chromedriver
-                # Instead, we're using a virtual display with GNOME
-                options.add_argument('--disable-background-timer-throttling')
-                options.add_argument('--disable-backgrounding-occluded-windows')
-                options.add_argument("--disable-renderer-backgrounding")
-                options.add_argument("--window-size=1920,1080")
+                # Instead, we're using a virtual display with Xvfb
                 options.add_argument("--no-sandbox")
                 options.add_argument("--disable-dev-shm-usage")
+                options.headless = False
+                # We've monkey-patched ChromeOptions to have a headless property
+                # so we don't need to pass headless=False anymore
                 # You might need to specify the driver executable path if not in PATH
                 # driver_executable_path = '/path/to/chromedriver'
-                # return uc.Chrome(options=options, driver_executable_path=driver_executable_path)
-                return uc.Chrome(options=options)
+                # Updated to be compatible with newer Selenium versions
+                # Remove use_subprocess parameter which is causing compatibility issues
+                driver = uc.Chrome()
+                driver.options = options
+                return driver
 
             selenium_driver = await asyncio.to_thread(start_driver)
             logger.info("Persistent Selenium Driver initialized.")
@@ -932,6 +1092,11 @@ async def connect_kick_chat(channel_name):
         config.kick_channel_name = channel_name
         polling_active = True  # Set flag after state is properly configured
 
+        # Initialize message activity tracking
+        with message_activity_lock:
+            last_message_time = time.time()
+            logger.info(f"Initialized last_message_time to {last_message_time}")
+
         logger.info("Creating polling and streaming tasks...")
         # Ensure previous tasks are properly handled if reconnecting quickly
         if polling_task and not polling_task.done(): polling_task.cancel()
@@ -946,20 +1111,24 @@ async def connect_kick_chat(channel_name):
         # Set a fixed window size for Docker/Xvfb environment
         # In Docker with Xvfb, window positioning doesn't matter as much
         # but we still want a reasonable window size for performance
-        width = 1024
-        height = 768
+        width = 1920
+        height = 1080
 
-        #
-        await asyncio.to_thread(selenium_driver.execute_script("focus the window")) # Focus the window
-
-
-        logger.info(f"Browser window set to fixed size ({width}x{height}) for Docker environment")
+        try:
+            # Set window size using both methods for compatibility
+            await asyncio.to_thread(selenium_driver.set_window_size, width, height)
+            await asyncio.to_thread(selenium_driver.execute_script, f"window.resizeTo({width}, {height});")
+            # Focus the window
+            await asyncio.to_thread(selenium_driver.execute_script, "window.focus();")
+            logger.info(f"Browser window set to fixed size ({width}x{height}) for Docker environment")
+        except Exception as e:
+            logger.warning(f"Failed to set window size: {e}")
 
         # Start the keep-alive timer thread with shorter interval
         keep_alive_active = True
         keep_alive_timer = threading.Thread(
             target=keep_alive_thread_function,
-            args=(1,),  # 1-second interval for more frequent interactions
+            args=(10,),  # 1-second interval for more frequent interactions
             daemon=True
         )
         keep_alive_timer.start()

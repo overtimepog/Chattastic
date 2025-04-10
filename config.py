@@ -6,6 +6,12 @@ import logging
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.WARNING)
 
+# Disable noisy Selenium WebDriver debug logs
+logging.getLogger('urllib3').setLevel(logging.WARNING)
+logging.getLogger('selenium').setLevel(logging.WARNING)
+logging.getLogger('undetected_chromedriver').setLevel(logging.WARNING)
+logging.getLogger('selenium.webdriver.remote.remote_connection').setLevel(logging.WARNING)
+
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Twitch application credentials

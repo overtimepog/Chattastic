@@ -38,12 +38,28 @@ except ImportError:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "undetected-chromedriver"])
     import undetected_chromedriver as uc
 
+# Monkey patch for undetected_chromedriver to fix the 'headless' attribute error
+# This adds a dummy headless property to ChromeOptions to prevent AttributeError
+original_init = uc.ChromeOptions.__init__
+def patched_init(self, *args, **kwargs):
+    original_init(self, *args, **kwargs)
+    # Add a dummy headless property that's always False
+    # This prevents the AttributeError when uc.Chrome checks options.headless
+    self.headless = False
+uc.ChromeOptions.__init__ = patched_init
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Disable noisy Selenium WebDriver debug logs
+logging.getLogger('urllib3').setLevel(logging.WARNING)
+logging.getLogger('selenium').setLevel(logging.WARNING)
+logging.getLogger('undetected_chromedriver').setLevel(logging.WARNING)
+logging.getLogger('selenium.webdriver.remote.remote_connection').setLevel(logging.WARNING)
 
 # Use proxy configuration from config.py
 PROXY_URL = config.proxy_server
@@ -83,10 +99,11 @@ def setup_driver(use_proxy=False, proxy_url=None):
         os.makedirs(user_data_dir, exist_ok=True)
 
         # Initialize the driver with persistence
-        driver = uc.Chrome(
-            options=options,
-            user_data_dir=user_data_dir,
-        )
+        # We've monkey-patched ChromeOptions to have a headless property
+        # so we don't need to pass headless=False anymore
+        # Updated to be compatible with newer Selenium versions
+        driver = uc.Chrome()
+        driver.options = options
 
         # Set window size
         driver.set_window_size(1280, 800)

@@ -18,8 +18,8 @@ fastapi
 uvicorn[standard]
 python-multipart # Often needed for form data with FastAPI
 websockets # Explicitly add for FastAPI WebSocket support
-selenium
-undetected-chromedriver==3.5.0 # For Kick chat scraping via Selenium
+selenium==4.10.0
+undetected-chromedriver==3.5.3 # For Kick chat scraping via Selenium
 
 # Optional: Keep DearPyGui for backward compatibility if needed
 # dearpygui
@@ -30,3 +30,6 @@ stealth-requests
 
 # HTML Parsing
 beautifulsoup4
+
+# Docker API
+docker

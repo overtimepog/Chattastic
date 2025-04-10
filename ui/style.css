@@ -215,3 +215,27 @@ li {
 .small-button:hover {
     background-color: #5a6268;
 }
+
+#docker-section {
+    background-color: #f8f9fa;
+    border-left: 4px solid #17a2b8;
+}
+
+.button {
+    display: inline-block;
+    padding: 8px 15px;
+    margin: 5px 0;
+    cursor: pointer;
+    background-color: #17a2b8;
+    color: white;
+    border: none;
+    border-radius: 3px;
+    text-decoration: none;
+    text-align: center;
+}
+
+.button:hover {
+    background-color: #138496;
+    text-decoration: none;
+    color: white;
+}

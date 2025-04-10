@@ -508,6 +508,79 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Desktop View Functionality
+    function initDesktopView() {
+        const toggleDesktopViewBtn = document.getElementById('toggle-desktop-view-btn');
+        const desktopViewContainer = document.getElementById('desktop-view-container');
+        const desktopViewImg = document.getElementById('desktop-view-img');
+        const refreshIntervalInput = document.getElementById('refresh-interval');
+
+        let refreshInterval = 1000; // Default 1 second
+        let refreshTimer = null;
+        let isViewVisible = true; // Start with the view visible
+
+        // Function to refresh the desktop view image
+        function refreshDesktopView() {
+            // Always refresh the image regardless of visibility
+            // Add a timestamp to prevent caching
+            const timestamp = new Date().getTime();
+            desktopViewImg.src = `/api/screenshot?t=${timestamp}`;
+
+            // Log to console for debugging
+            console.log('Refreshing desktop view at ' + new Date().toLocaleTimeString());
+        }
+
+        // Show desktop view by default
+        desktopViewContainer.style.display = 'block';
+        toggleDesktopViewBtn.textContent = 'Hide Desktop View';
+
+        // Start refresh timer immediately
+        refreshDesktopView(); // Initial refresh
+        refreshInterval = parseFloat(refreshIntervalInput.value) * 1000;
+        refreshTimer = setInterval(refreshDesktopView, refreshInterval);
+
+        // Toggle desktop view visibility
+        if (toggleDesktopViewBtn) {
+            toggleDesktopViewBtn.addEventListener('click', function() {
+                isViewVisible = !isViewVisible;
+
+                if (isViewVisible) {
+                    desktopViewContainer.style.display = 'block';
+                    toggleDesktopViewBtn.textContent = 'Hide Desktop View';
+
+                    // Start refresh timer if it's not already running
+                    if (!refreshTimer) {
+                        refreshDesktopView(); // Initial refresh
+                        refreshInterval = parseFloat(refreshIntervalInput.value) * 1000;
+                        refreshTimer = setInterval(refreshDesktopView, refreshInterval);
+                    }
+                } else {
+                    desktopViewContainer.style.display = 'none';
+                    toggleDesktopViewBtn.textContent = 'Show Desktop View';
+
+                    // We'll keep the timer running to maintain up-to-date screenshots
+                    // even when the view is hidden
+                }
+            });
+        }
+
+        // Update refresh interval when changed
+        if (refreshIntervalInput) {
+            refreshIntervalInput.addEventListener('change', function() {
+                // Always update the refresh interval when changed
+                if (refreshTimer) {
+                    clearInterval(refreshTimer);
+                    refreshInterval = parseFloat(refreshIntervalInput.value) * 1000;
+                    refreshTimer = setInterval(refreshDesktopView, refreshInterval);
+                    console.log('Updated refresh interval to ' + refreshInterval + 'ms');
+                }
+            });
+        }
+    }
+
+    // Initialize desktop view functionality
+    initDesktopView();
+
     // Connect to WebSocket
     connectWebSocket();
 });

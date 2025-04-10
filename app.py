@@ -2,9 +2,10 @@
 
 import asyncio
 import sys
+import os
 import logging
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 import config  # Assuming config.py holds necessary configurations
@@ -77,6 +78,8 @@ async def get_root(code: str = None, state: str = None):
 from utils import auth as auth_router # Rename to avoid conflict
 from api import twitch as twitch_api # Import the refactored twitch api module
 from api import kick as kick_api # Import the refactored kick api module
+from api import docker as docker_api # Import the Docker API module
+from api import screenshot as screenshot_api # Import the screenshot module
 # TODO: Import audio utils if needed for TTS trigger
 # from utils import audio as audio_utils
 
@@ -134,6 +137,27 @@ async def handle_ws_message(websocket: WebSocket, message: dict):
 
         elif msg_type == "disconnect_kick_chat":
              await kick_api.disconnect_kick_chat() # Call the async function
+
+        elif msg_type == "get_docker_containers":
+            # Get Docker containers and send to client
+            containers = await docker_api.get_containers()
+            await globals.manager.send_personal_message(json.dumps({
+                "type": "docker_containers",
+                "data": {"containers": containers}
+            }), websocket)
+
+        elif msg_type == "stream_docker_logs":
+            container_id = msg_data.get("container_id")
+            if container_id:
+                # Start streaming logs for the container
+                # This will continue until the WebSocket is closed
+                await docker_api.stream_container_logs(container_id, websocket)
+            else:
+                logger.warning("Stream Docker logs request missing container ID.")
+                await globals.manager.send_personal_message(json.dumps({
+                    "type": "error",
+                    "data": {"message": "Missing container ID for Docker logs"}
+                }), websocket)
 
         elif msg_type == "select_random_viewers":
             count = msg_data.get("count", 1)
@@ -401,12 +425,43 @@ async def get_random_overlay():
         logger.error(f"Error reading ui/random_overlay.html: {e}")
         return HTMLResponse(content="<html><body><h1>Internal Server Error</h1></body></html>", status_code=500)
 
+# --- Route for Docker Logs ---
+@app.get("/docker-logs", response_class=HTMLResponse)
+async def get_docker_logs():
+    """Serves the HTML page for the Docker logs viewer."""
+    try:
+        with open("ui/docker_logs.html", "r") as f:
+            return HTMLResponse(content=f.read(), status_code=200)
+    except FileNotFoundError:
+        logger.error("ui/docker_logs.html not found.")
+        return HTMLResponse(content="<html><body><h1>Error: docker_logs.html not found</h1></body></html>", status_code=404)
+    except Exception as e:
+        logger.error(f"Error reading ui/docker_logs.html: {e}")
+        return HTMLResponse(content="<html><body><h1>Internal Server Error</h1></body></html>", status_code=500)
+
+# Screenshot endpoint
+@app.get("/api/screenshot")
+async def get_screenshot():
+    screenshot_path = screenshot_api.get_latest_screenshot()
+    if screenshot_path and os.path.exists(screenshot_path):
+        return FileResponse(screenshot_path)
+    else:
+        return HTMLResponse(content="<html><body><h1>No screenshot available</h1></body></html>", status_code=404)
+
 # --- Application Startup/Shutdown ---
 @app.on_event("startup")
 async def startup_event():
     logger.info("Application starting up...")
     # Initialize authentication state
     await auth_router.initialize_auth()
+
+    # Initialize Docker client
+    if not docker_api.init_docker_client():
+        logger.warning("Docker API functionality will be limited. Some features may not work.")
+
+    # Initialize screenshot service
+    screenshot_api.init()
+
     # Broadcast initial state to any early WS connections
     # We'll try to broadcast, but it's okay if it fails (no connections yet)
     try:
@@ -418,6 +473,9 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     logger.info("Application shutting down...")
+    # Stop screenshot service
+    screenshot_api.cleanup()
+
     # Disconnect Kick chat cleanly
     await kick_api.disconnect_kick_chat()
     # TODO: Add disconnect for Twitch chat if implemented
