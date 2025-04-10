@@ -42,6 +42,10 @@ def screenshot_thread_function():
 
     logger.info("Starting screenshot capture thread")
 
+    # Add a counter to log periodic status updates
+    screenshot_count = 0
+    status_log_interval = 30  # Log status every 30 screenshots
+
     while screenshot_active:
         try:
             # Use a fixed filename for the desktop view
@@ -51,6 +55,11 @@ def screenshot_thread_function():
             # Capture the screenshot
             if capture_screenshot(output_path):
                 latest_screenshot_path = output_path
+                screenshot_count += 1
+
+                # Log status periodically to confirm thread is still running
+                if screenshot_count % status_log_interval == 0:
+                    logger.info(f"Screenshot service still running - captured {screenshot_count} screenshots so far")
 
             # Sleep for the specified interval
             time.sleep(screenshot_interval)

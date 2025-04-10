@@ -53,6 +53,7 @@ selenium_driver = None # WebDriver instance for ongoing chat polling
 # Thread-safe queue and polling control
 message_queue = Queue()
 last_processed_index = -1
+last_processed_timestamp = None  # Track the last processed message timestamp
 polling_active = False
 polling_task = None
 streaming_task = None
@@ -446,7 +447,7 @@ async def wait_for_element_with_retry(driver, by, value, max_retries=2, delay=1,
 
 async def poll_messages(channel_name):
     """Continuously poll for new chat messages using the persistent Selenium driver."""
-    global last_processed_index, polling_active, selenium_driver, last_message_time
+    global last_processed_index, last_processed_timestamp, polling_active, selenium_driver, last_message_time
     if not selenium_driver or not selenium_driver.session_id:
         logger.error("Polling cannot start: Persistent Selenium driver is not initialized or session is invalid.")
         polling_active = False
@@ -513,18 +514,38 @@ async def poll_messages(channel_name):
 
                     index = int(index_str)
 
+                    # Find the inner '.group' div which contains the visible message parts
+                    message_group_element = element.find('div', class_='group')
+                    if not message_group_element:
+                        logger.warning(f"Could not find 'div.group' inside element with data-index {index}")
+                        continue
+
+                    # Extract timestamp from the message group
+                    timestamp_element = message_group_element.find('span', class_='text-neutral')
+                    current_timestamp = timestamp_element.get_text(strip=True) if timestamp_element else None
+
+                    # Check if this is a new message using both index and timestamp
+                    is_new_message = False
+
+                    # First check by index
                     if index > last_processed_index:
+                        is_new_message = True
+                    # If index is the same or lower but we have a timestamp, check if it's a new timestamp
+                    elif current_timestamp and current_timestamp != last_processed_timestamp:
+                        # This handles cases where the index might be reused but the message is actually new
+                        is_new_message = True
+
+                    if is_new_message:
                         new_messages_found_in_batch = True
                         max_index_in_batch = max(max_index_in_batch, index)
 
-                        # Find the inner '.group' div which contains the visible message parts
-                        message_group_element = element.find('div', class_='group')
-                        if message_group_element:
-                            # Get the HTML of this group element to pass to the parser
-                            outer_html = str(message_group_element)
-                            messages_to_parse.append({"index": index, "html": outer_html})
-                        else:
-                            logger.warning(f"Could not find 'div.group' inside element with data-index {index}")
+                        # Get the HTML of this group element to pass to the parser
+                        outer_html = str(message_group_element)
+                        messages_to_parse.append({
+                            "index": index,
+                            "html": outer_html,
+                            "timestamp": current_timestamp
+                        })
 
                 except ValueError:
                     logger.warning(f"Could not parse data-index '{index_str}' as integer.")
@@ -568,10 +589,16 @@ async def poll_messages(channel_name):
                     logger.error(f"Error parsing or queuing message element at index {index}: {str(parse_err)}")
                     logger.debug(f"Problematic element HTML for index {index}: {group_html[:500]}...")
 
-            # Update index and activity time
+            # Update index, timestamp, and activity time
             if new_messages_found_in_batch:
                 last_processed_index = max_index_in_batch
-                logger.info(f"Processed DOM messages up to index {last_processed_index}")
+                # Update the last processed timestamp if we have messages
+                if messages_to_parse:
+                    last_processed_timestamp = messages_to_parse[-1].get("timestamp")
+                    logger.info(f"Processed DOM messages up to index {last_processed_index} with timestamp {last_processed_timestamp}")
+                else:
+                    logger.info(f"Processed DOM messages up to index {last_processed_index}")
+
                 with message_activity_lock:
                     last_message_time = time.time()
                     # logger.debug(f"Updated last_message_time to {last_message_time}")
@@ -974,6 +1001,7 @@ async def connect_kick_chat(channel_name):
 
     # --- Reset state ---
     last_processed_index = -1
+    last_processed_timestamp = None
     config.kick_chat_messages.clear()
     while not message_queue.empty():
         try: message_queue.get_nowait()
@@ -1195,9 +1223,10 @@ async def disconnect_kick_chat(driver_already_quit=False):
     config.kick_chat_stream = None
     config.kick_channel_id = None
     config.kick_channel_name = None
-    # Reset the last processed index for message tracking
-    global last_processed_index
+    # Reset the last processed index and timestamp for message tracking
+    global last_processed_index, last_processed_timestamp
     last_processed_index = -1
+    last_processed_timestamp = None
     polling_task = None
     streaming_task = None
     keep_alive_timer = None
