@@ -37,16 +37,10 @@ function initTheme() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('DOM content loaded, initializing UI elements');
-
     // Initialize theme
     initTheme();
 
-    // Set up theme toggle
-    const themeToggle = document.getElementById('theme-toggle');
-    if (themeToggle) {
-        themeToggle.addEventListener('click', toggleTheme);
-    }
+    // Not adding theme toggle event listener here since we're using inline onclick
 
     // Get UI elements
     const wsStatus = document.getElementById('ws-status');
@@ -59,8 +53,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const currentKickChannel = document.getElementById('current-kick-channel');
     const raffleEntriesCount = document.getElementById('raffle-entries-count');
 
-    let socket;
-
     // Connect to WebSocket
     function connectWebSocket() {
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -68,9 +60,9 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log(`Connecting to WebSocket: ${wsUrl}`);
 
         try {
-            socket = new WebSocket(wsUrl);
+            window.ws = new WebSocket(wsUrl);
 
-            socket.onopen = () => {
+            window.ws.onopen = () => {
                 console.log('WebSocket connected');
                 if (wsStatus) {
                     wsStatus.textContent = 'Connected';
@@ -84,7 +76,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }, 500);
             };
 
-            socket.onmessage = (event) => {
+            window.ws.onmessage = (event) => {
                 // Only log non-screenshot messages to avoid console spam
                 if (!event.data.includes('screenshot_update')) {
                     console.log('Received message:', event.data);
@@ -98,7 +90,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             };
 
-            socket.onerror = (error) => {
+            window.ws.onerror = (error) => {
                 console.error('WebSocket error:', error);
                 if (wsStatus) {
                     wsStatus.textContent = 'Error';
@@ -106,7 +98,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             };
 
-            socket.onclose = () => {
+            window.ws.onclose = () => {
                 console.log('WebSocket closed');
                 if (wsStatus) {
                     wsStatus.textContent = 'Disconnected';
@@ -123,13 +115,70 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Send message to server
     function sendMessage(message) {
-        if (socket && socket.readyState === WebSocket.OPEN) {
+        if (window.ws && window.ws.readyState === WebSocket.OPEN) {
             const messageStr = JSON.stringify(message);
             console.log('Sending message:', messageStr);
-            socket.send(messageStr);
+            window.ws.send(messageStr);
         } else {
             console.error('WebSocket not connected');
         }
+    }
+
+    // Show message to user
+    function showMessage(type, message) {
+        console.log(`Showing ${type} message: ${message}`);
+
+        // Create message element if it doesn't exist
+        let messageContainer = document.getElementById('message-container');
+        if (!messageContainer) {
+            messageContainer = document.createElement('div');
+            messageContainer.id = 'message-container';
+            messageContainer.style.position = 'fixed';
+            messageContainer.style.top = '20px';
+            messageContainer.style.left = '50%';
+            messageContainer.style.transform = 'translateX(-50%)';
+            messageContainer.style.zIndex = '1000';
+            document.body.appendChild(messageContainer);
+        }
+
+        // Create message element
+        const messageElement = document.createElement('div');
+        messageElement.className = `message ${type}`;
+        messageElement.textContent = message;
+        messageElement.style.padding = '10px 20px';
+        messageElement.style.margin = '10px 0';
+        messageElement.style.borderRadius = '5px';
+        messageElement.style.boxShadow = '0 2px 5px rgba(0,0,0,0.2)';
+
+        // Set colors based on message type
+        if (type === 'error') {
+            messageElement.style.backgroundColor = '#f44336';
+            messageElement.style.color = 'white';
+        } else if (type === 'success') {
+            messageElement.style.backgroundColor = '#4CAF50';
+            messageElement.style.color = 'white';
+        } else if (type === 'warning') {
+            messageElement.style.backgroundColor = '#ff9800';
+            messageElement.style.color = 'white';
+        } else {
+            messageElement.style.backgroundColor = '#2196F3';
+            messageElement.style.color = 'white';
+        }
+
+        // Add message to container
+        messageContainer.appendChild(messageElement);
+
+        // Remove message after 5 seconds
+        setTimeout(() => {
+            messageElement.style.opacity = '0';
+            messageElement.style.transition = 'opacity 0.5s';
+            setTimeout(() => {
+                messageContainer.removeChild(messageElement);
+                if (messageContainer.children.length === 0) {
+                    document.body.removeChild(messageContainer);
+                }
+            }, 500);
+        }, 5000);
     }
 
     // Handle incoming messages
@@ -1073,7 +1122,9 @@ function initSettings() {
 
     // Save all settings
     if (saveSettingsBtn) {
+        console.log('Save settings button found:', saveSettingsBtn);
         saveSettingsBtn.addEventListener('click', () => {
+            console.log('Save settings button clicked');
             // Collect settings from UI
             const settings = {
                 obs_source: {
@@ -1096,15 +1147,39 @@ function initSettings() {
             };
 
             // Send settings to server
+            console.log('WebSocket status:', window.ws ? window.ws.readyState : 'undefined');
             if (window.ws && window.ws.readyState === WebSocket.OPEN) {
-                window.ws.send(JSON.stringify({
+                const message = {
                     type: 'update_settings',
                     data: { settings: settings }
-                }));
+                };
+                const messageStr = JSON.stringify(message);
+                console.log('Sending settings message:', messageStr);
+                window.ws.send(messageStr);
                 console.log('Sent settings to server:', settings);
+                showMessage('success', 'Settings saved successfully!');
             } else {
                 console.error('WebSocket not connected, cannot save settings');
+                console.error('WebSocket object:', window.ws);
                 showMessage('error', 'WebSocket not connected, cannot save settings');
+
+                // Try reconnecting
+                console.log('Attempting to reconnect WebSocket...');
+                connectWebSocket();
+
+                // Set a timeout to try again after reconnection
+                setTimeout(() => {
+                    if (window.ws && window.ws.readyState === WebSocket.OPEN) {
+                        console.log('Reconnected, trying to send settings again...');
+                        window.ws.send(JSON.stringify({
+                            type: 'update_settings',
+                            data: { settings: settings }
+                        }));
+                        showMessage('success', 'Settings saved successfully after reconnection!');
+                    } else {
+                        console.error('Failed to reconnect WebSocket');
+                    }
+                }, 1000);
             }
         });
     }

@@ -452,7 +452,7 @@ async def wait_for_element_with_retry(driver, by, value, max_retries=2, delay=1,
 
 async def poll_messages(channel_name):
     """Continuously poll for new chat messages using the persistent Selenium driver."""
-    global last_processed_index, polling_active, selenium_driver, last_message_time
+    global last_processed_index, polling_active, selenium_driver, last_message_time, last_processed_timestamps
     if not selenium_driver or not selenium_driver.session_id:
         logger.error("Polling cannot start: Persistent Selenium driver is not initialized or session is invalid.")
         polling_active = False
@@ -582,6 +582,7 @@ async def poll_messages(channel_name):
                             temp_dict = {}
                             for k in sorted(last_processed_timestamps.keys())[-MAX_PROCESSED_IDS:]:
                                 temp_dict[k] = last_processed_timestamps[k]
+                            # Assign to the global variable
                             last_processed_timestamps = temp_dict
 
                         # Get the HTML of this group element to pass to the parser

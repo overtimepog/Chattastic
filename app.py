@@ -18,8 +18,9 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
-# Mount static files directory (for HTML, CSS, JS)
+# Mount static files directories (for HTML, CSS, JS)
 app.mount("/static", StaticFiles(directory="ui"), name="static")
+app.mount("/static-assets", StaticFiles(directory="static"), name="static-assets")
 
 class ConnectionManager:
     def __init__(self):
