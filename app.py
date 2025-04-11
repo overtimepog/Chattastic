@@ -1,7 +1,6 @@
 
 
 import asyncio
-import sys
 import os
 import logging
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -72,7 +71,9 @@ class ConnectionManager:
     async def _direct_broadcast(self, message: str):
         """Immediately broadcast a message to all connections."""
         async with self._broadcast_lock:
-            logger.debug(f"Direct broadcasting message: {message[:100]}...")
+            # Only log non-screenshot messages
+            if 'screenshot_update' not in message and 'desktop_view' not in message:
+                logger.debug(f"Direct broadcasting message: {message[:100]}...")
             for connection in self.active_connections.copy():  # Use copy to avoid modification during iteration
                 try:
                     await connection.send_text(message)
@@ -625,7 +626,7 @@ async def get_docker_logs():
 async def get_screenshot(t: str = None, id: str = None, fallback: bool = False, direct: bool = False, emergency: bool = False, retry: bool = False):
     screenshot_path = screenshot_api.get_latest_screenshot()
 
-    # Log request details if it's not a regular update (to avoid log spam)
+    # Only log special screenshot requests, not regular updates
     if fallback or direct or emergency or retry:
         logger.info(f"Screenshot request with params: fallback={fallback}, direct={direct}, emergency={emergency}, retry={retry}")
 

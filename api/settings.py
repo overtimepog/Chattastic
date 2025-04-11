@@ -66,7 +66,9 @@ def get_settings_path() -> str:
     """
     if is_docker() and os.path.exists(HOST_SETTINGS_DIR):
         return os.path.join(HOST_SETTINGS_DIR, SETTINGS_FILE)
-    return SETTINGS_FILE
+
+    # Get the absolute path for better display in the UI
+    return os.path.abspath(SETTINGS_FILE)
 
 
 def load_settings() -> Dict[str, Any]:
@@ -278,19 +280,49 @@ def export_settings(filename: str = None) -> Dict[str, Any]:
         filename: Optional custom filename (without extension)
 
     Returns:
-        Dict[str, Any]: The exported settings
+        Dict[str, Any]: The exported settings with path and timestamp
     """
     # Load current settings
     settings = load_settings()
 
+    # Get the settings directory path
+    settings_path = get_settings_path()
+    settings_dir = os.path.dirname(settings_path)
+
     # Create exports directory if it doesn't exist
-    export_dir = os.path.join(os.path.dirname(get_settings_path()), EXPORT_DIR)
-    os.makedirs(export_dir, exist_ok=True)
+    # If settings_dir is empty, use the current directory
+    if not settings_dir:
+        settings_dir = '.'
+        logger.info("Using current directory for exports")
+
+    export_dir = os.path.join(settings_dir, EXPORT_DIR)
+
+    # Log the export directory path
+    logger.info(f"Creating exports directory at: {export_dir}")
+
+    # Ensure the exports directory exists
+    try:
+        os.makedirs(export_dir, exist_ok=True)
+        logger.info(f"Exports directory created/verified at: {os.path.abspath(export_dir)}")
+    except Exception as e:
+        logger.error(f"Error creating exports directory {export_dir}: {e}")
+        # Try creating in the current directory as a fallback
+        try:
+            export_dir = os.path.join('.', EXPORT_DIR)
+            os.makedirs(export_dir, exist_ok=True)
+            logger.info(f"Created fallback exports directory at: {os.path.abspath(export_dir)}")
+        except Exception as e2:
+            logger.error(f"Error creating fallback exports directory: {e2}")
+            return {
+                "success": False,
+                "error": f"Could not create exports directory: {str(e)}"
+            }
 
     # Generate filename if not provided
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
     if not filename:
-        from datetime import datetime
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"chattastic_settings_{timestamp}"
 
     # Ensure .json extension
@@ -298,15 +330,17 @@ def export_settings(filename: str = None) -> Dict[str, Any]:
         filename += ".json"
 
     export_path = os.path.join(export_dir, filename)
+    logger.info(f"Exporting settings to: {export_path}")
 
     try:
         with open(export_path, 'w') as file:
             json.dump(settings, file, indent=2)
-        logger.info(f"Settings exported to {export_path}")
+        logger.info(f"Settings exported successfully to {export_path}")
         return {
             "success": True,
             "path": export_path,
-            "settings": settings
+            "settings": settings,
+            "timestamp": timestamp
         }
     except Exception as e:
         logger.error(f"Error exporting settings to {export_path}: {e}")

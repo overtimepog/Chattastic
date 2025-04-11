@@ -86,7 +86,9 @@ def capture_screenshot(output_path):
             result = subprocess.run(cmd, shell=True, check=False, timeout=5, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
 
             if result.returncode == 0:
-                logger.debug(f"Screenshot captured successfully: {output_path}")
+                # Reduced logging - only log at debug level if DEBUG_SCREENSHOTS is enabled
+                if os.environ.get('DEBUG_SCREENSHOTS') == '1':
+                    logger.debug(f"Screenshot captured successfully: {output_path}")
                 # Clean up any old screenshot files
                 cleanup_screenshot_files(output_path)
                 return True
@@ -136,7 +138,9 @@ async def broadcast_screenshot_update(path):
 
             # Use the screenshot-specific broadcast queue for high priority
             await globals.manager._screenshot_queue.put(message_str)
-            logger.debug(f"Queued screenshot update: {path} with ID {update_id}")
+            # Only log if debug screenshots are enabled
+            if os.environ.get('DEBUG_SCREENSHOTS') == '1':
+                logger.debug(f"Queued screenshot update: {path} with ID {update_id}")
         else:
             logger.warning("Cannot broadcast screenshot update: globals.manager is None")
     except Exception as e:

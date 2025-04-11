@@ -40,6 +40,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initialize theme
     initTheme();
 
+    // Initialize settings functionality
+    initSettings();
+
     // Not adding theme toggle event listener here since we're using inline onclick
 
     // Get UI elements
@@ -987,8 +990,18 @@ function initSettings() {
     // Get settings elements
     const saveSettingsBtn = document.getElementById('save-settings-btn');
     const loadSettingsBtn = document.getElementById('load-settings-btn');
+    const exportSettingsBtn = document.getElementById('export-settings-btn');
+    const importSettingsBtn = document.getElementById('import-settings-btn');
     const screenshotIntervalInput = document.getElementById('screenshot-interval');
     const updateScreenshotIntervalBtn = document.getElementById('update-screenshot-interval-btn');
+
+    // Log the presence of buttons for debugging
+    console.log('Settings buttons found:', {
+        saveSettingsBtn: !!saveSettingsBtn,
+        loadSettingsBtn: !!loadSettingsBtn,
+        exportSettingsBtn: !!exportSettingsBtn,
+        importSettingsBtn: !!importSettingsBtn
+    });
 
     // Initialize settings from WebSocket initial status
     function applySettings(settings) {
@@ -1053,20 +1066,26 @@ function initSettings() {
                     let infoClass = 'settings-info';
                     let infoText = '';
 
+                    // Make sure path is not undefined
+                    const settingsPath = data.path || 'unknown location';
+
                     if (data.is_persistent) {
                         infoClass += ' success';
-                        infoText = `<strong>Settings are persistent!</strong> They are being stored at: <code>${data.path}</code>`;
+                        infoText = `<strong>Settings are persistent!</strong> They are being stored at: <code>${settingsPath}</code>`;
                         if (data.in_docker && data.using_host_dir) {
                             infoText += '<br>Your settings are saved to the host machine and will persist across container restarts.';
                         }
                     } else {
                         infoClass += ' warning';
-                        infoText = `<strong>Warning: Settings are NOT persistent!</strong> They are stored at: <code>${data.path}</code> inside the container.`;
+                        infoText = `<strong>Warning: Settings are NOT persistent!</strong> They are stored at: <code>${settingsPath}</code> inside the container.`;
                         infoText += '<br>Your settings will be lost when the container is restarted. Please use the Export Settings button to save your settings.';
                     }
 
                     locationInfo.className = infoClass;
                     locationInfo.innerHTML = `<p>${infoText}</p>`;
+
+                    // Log the settings location for debugging
+                    console.log('Settings location info:', data);
                 }
             })
             .catch(error => {
@@ -1245,43 +1264,243 @@ function initSettings() {
     }
 
     // Export settings
-    const exportSettingsBtn = document.getElementById('export-settings-btn');
     if (exportSettingsBtn) {
+        console.log('Adding click event listener to export settings button');
         exportSettingsBtn.addEventListener('click', () => {
+            console.log('Export settings button clicked');
+            // Show export status
+            const exportStatus = document.getElementById('export-status');
+            if (exportStatus) {
+                exportStatus.textContent = 'Exporting settings...';
+                exportStatus.style.display = 'inline';
+                exportStatus.style.color = '#2196F3';
+            }
+
+            // Disable the export button
+            exportSettingsBtn.disabled = true;
+
+            console.log('Initiating settings export...');
+
             // Call the export API endpoint
             fetch('/api/settings/export', {
-                method: 'POST'
+                method: 'GET'
             })
-            .then(response => response.json())
+            .then(response => {
+                console.log('Export response status:', response.status);
+                if (!response.ok) {
+                    return response.text().then(text => {
+                        console.error('Error response body:', text);
+                        throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+                    });
+                }
+                return response.json();
+            })
             .then(data => {
-                console.log('Settings exported:', data);
-                if (data.success) {
-                    const exportResult = document.getElementById('export-result');
-                    if (exportResult) {
-                        exportResult.innerHTML = `
-                            <p><strong>Settings exported successfully!</strong></p>
-                            <p>File: <code>${data.path}</code></p>
-                            <p><a href="/api/settings/export/${data.path.split('/').pop()}" class="button" download>Download Settings File</a></p>
-                        `;
-                        exportResult.classList.remove('hidden');
+                console.log('Export response data:', data);
+                if (data.success && data.filename) {
+                    // Update status
+                    if (exportStatus) {
+                        exportStatus.textContent = 'Downloading file...';
                     }
+
+                    // Create a download link
+                    const downloadUrl = `/api/settings/export/${data.filename}`;
+                    console.log('Download URL:', downloadUrl);
+
+                    // Create a temporary link element
+                    const downloadLink = document.createElement('a');
+                    downloadLink.href = downloadUrl;
+                    downloadLink.download = data.filename;
+                    downloadLink.style.display = 'none';
+
+                    // Add to document, click it, then remove it
+                    document.body.appendChild(downloadLink);
+                    downloadLink.click();
+
+                    // Clean up after a short delay
+                    setTimeout(() => {
+                        document.body.removeChild(downloadLink);
+
+                        // Update status to success
+                        if (exportStatus) {
+                            exportStatus.textContent = 'Settings downloaded successfully!';
+                            exportStatus.style.color = '#4CAF50';
+
+                            // Hide status after 3 seconds
+                            setTimeout(() => {
+                                exportStatus.style.display = 'none';
+                                exportSettingsBtn.disabled = false;
+                            }, 3000);
+                        } else {
+                            exportSettingsBtn.disabled = false;
+                        }
+                    }, 1000);
                 } else {
-                    showMessage('error', `Failed to export settings: ${data.error || 'Unknown error'}`);
+                    // Update status to error
+                    const errorMsg = data.error || 'Could not download settings file.';
+                    console.error('Export error:', errorMsg);
+                    if (exportStatus) {
+                        exportStatus.textContent = `Error: ${errorMsg}`;
+                        exportStatus.style.color = '#f44336';
+                    }
+
+                    // Re-enable the export button
+                    exportSettingsBtn.disabled = false;
+
+                    // Hide status after 3 seconds
+                    if (exportStatus) {
+                        setTimeout(() => {
+                            exportStatus.style.display = 'none';
+                        }, 3000);
+                    }
                 }
             })
             .catch(error => {
                 console.error('Error exporting settings:', error);
-                showMessage('error', `Error exporting settings: ${error.message}`);
+
+                // Update status to error
+                if (exportStatus) {
+                    exportStatus.textContent = `Error: ${error.message}`;
+                    exportStatus.style.color = '#f44336';
+
+                    // Hide status after 5 seconds
+                    setTimeout(() => {
+                        exportStatus.style.display = 'none';
+                    }, 5000);
+                }
+
+                // Re-enable the export button
+                exportSettingsBtn.disabled = false;
             });
         });
     }
 
     // Import settings button - show the import form
-    const importSettingsBtn = document.getElementById('import-settings-btn');
     const importForm = document.getElementById('import-form');
     if (importSettingsBtn && importForm) {
+        console.log('Adding click event listener to import settings button');
         importSettingsBtn.addEventListener('click', () => {
-            importForm.classList.remove('hidden');
+            console.log('Import settings button clicked');
+            // Show export status
+            const exportStatus = document.getElementById('export-status');
+            if (exportStatus) {
+                exportStatus.textContent = 'Select a settings file to import...';
+                exportStatus.style.display = 'inline';
+                exportStatus.style.color = '#2196F3';
+            }
+
+            // Create a file input element
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.accept = '.json';
+            fileInput.style.display = 'none';
+            document.body.appendChild(fileInput);
+
+            // Handle file selection
+            fileInput.addEventListener('change', function() {
+                if (fileInput.files.length === 0) {
+                    if (exportStatus) {
+                        exportStatus.textContent = 'No file selected';
+                        exportStatus.style.color = '#f44336';
+
+                        // Hide status after 3 seconds
+                        setTimeout(() => {
+                            exportStatus.style.display = 'none';
+                        }, 3000);
+                    }
+
+                    // Clean up
+                    document.body.removeChild(fileInput);
+                    return;
+                }
+
+                const file = fileInput.files[0];
+                console.log('Selected file:', file.name, 'size:', file.size, 'type:', file.type);
+                if (exportStatus) {
+                    exportStatus.textContent = `Importing ${file.name}...`;
+                }
+
+                // Disable the import button
+                importSettingsBtn.disabled = true;
+
+                // Create form data
+                const formData = new FormData();
+                formData.append('file', file);
+
+                // Send the file to the server
+                fetch('/api/settings/import', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => {
+                    console.log('Import response status:', response.status);
+                    if (!response.ok) {
+                        return response.text().then(text => {
+                            console.error('Error response body:', text);
+                            throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+                        });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Import response data:', data);
+                    if (data.success) {
+                        // Update status to success
+                        if (exportStatus) {
+                            exportStatus.textContent = 'Settings imported successfully!';
+                            exportStatus.style.color = '#4CAF50';
+                        }
+
+                        // Apply the imported settings
+                        if (typeof loadSettings === 'function') {
+                            loadSettings();
+                        } else {
+                            // Fallback to fetch API if loadSettings function is not available
+                            fetch('/api/settings')
+                                .then(response => response.json())
+                                .then(settings => {
+                                    console.log('Settings loaded successfully:', settings);
+                                    applySettings(settings);
+                                })
+                                .catch(error => {
+                                    console.error('Error loading settings:', error);
+                                });
+                        }
+                    } else {
+                        // Update status to error
+                        if (exportStatus) {
+                            exportStatus.textContent = 'Error importing settings: ' + (data.error || 'Unknown error');
+                            exportStatus.style.color = '#f44336';
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('Error importing settings:', error);
+
+                    // Update status to error
+                    if (exportStatus) {
+                        exportStatus.textContent = `Error: ${error.message}`;
+                        exportStatus.style.color = '#f44336';
+                    }
+                })
+                .finally(() => {
+                    // Re-enable the import button
+                    importSettingsBtn.disabled = false;
+
+                    // Hide status after 5 seconds
+                    if (exportStatus) {
+                        setTimeout(() => {
+                            exportStatus.style.display = 'none';
+                        }, 5000);
+                    }
+
+                    // Clean up
+                    document.body.removeChild(fileInput);
+                });
+            });
+
+            // Trigger file selection dialog
+            fileInput.click();
         });
     }
 

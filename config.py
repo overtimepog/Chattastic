@@ -12,6 +12,9 @@ logging.getLogger('selenium').setLevel(logging.WARNING)
 logging.getLogger('undetected_chromedriver').setLevel(logging.WARNING)
 logging.getLogger('selenium.webdriver.remote.remote_connection').setLevel(logging.WARNING)
 
+# Set screenshot module to INFO level to reduce debug logs
+logging.getLogger('api.screenshot').setLevel(logging.INFO)
+
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Twitch application credentials

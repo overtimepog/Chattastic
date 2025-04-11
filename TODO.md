@@ -11,7 +11,9 @@
 
    ✅ create a new checkbox for the overlay, what id like is a new mode for the chat overlay, where instead of messages appear stacked on top of each other, they appear at random places across the browser source with an animation then they disapeer after a user setable time, also allow every aspect of this to be customizable from the webui (COMPLETED)
 
-   ✅ dark mode toggler for the webui and WebUI buttons including the settings exporter and saver (COMPLETED)
+   ✅ dark mode toggler for the webui and WebUI buttons (COMPLETED)
+
+   ✅ the webUIs settings exporter and saver and other settings buttons dont work (COMPLETED)
 
    ✅ introduce more api endpoints to save settings like obs source dimentions and kick and twitch tokens, to, instead of the docker container, to the actual chattastic folder where run.bat is ran, and have these settings be loaded on startup (COMPLETED)
 
