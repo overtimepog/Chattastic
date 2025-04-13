@@ -15,7 +15,7 @@
 
    ✅ the webUIs settings exporter and saver and other settings buttons dont work (COMPLETED)
 
-   ✅ introduce more api endpoints to save settings like obs source dimentions and kick and twitch tokens, to, instead of the docker container, to the actual chattastic folder where run.bat is ran, and have these settings be loaded on startup (COMPLETED)
+   introduce more api endpoints to save settings like obs source dimentions and kick and twitch tokens, to, instead of the docker container, to somewhere the user wants
 
    allow for users to create new web overlays with its own set of controls and unique url, then allow that data to be saved to the chattastic folder and loaded via api
 
