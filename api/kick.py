@@ -225,6 +225,46 @@ async def get_kick_channel_id(username):
         logger.exception(f"Unexpected error getting channel ID for {username}: {str(e)}")
         return None
 
+async def get_kick_profile_picture(username):
+    """
+    Get the profile picture URL for a Kick channel using stealth_requests to handle Cloudflare.
+
+    Parameters:
+        username (str): The Kick channel's username.
+
+    Returns:
+        str or None: The URL of the profile picture if found, otherwise None.
+    """
+    logger.info(f"Attempting to get profile picture for '{username}' using stealth_requests...")
+    api_url = f"https://kick.com/api/v2/channels/{username}"
+    headers = {'Accept': 'application/json'}
+
+    try:
+        logger.info(f"Fetching channel data from {api_url} using stealth_requests")
+        # Using asyncio.to_thread to run the synchronous requests.get call in a separate thread
+        resp = await asyncio.to_thread(requests.get, api_url, headers=headers, timeout=30)
+        resp.raise_for_status()  # Raise an HTTPError if the HTTP request returned an unsuccessful status code
+        data = resp.json()
+
+        # Navigate to the nested "user" object to get the "profile_pic" field
+        profile_pic = data.get("user", {}).get("profile_pic")
+        if not profile_pic:
+            logger.warning(f"Profile picture key 'user.profile_pic' not found in JSON for username: {username}. Data: {data}")
+            return None
+
+        logger.info(f"Found profile picture URL for {username}: {profile_pic}")
+        return profile_pic
+
+    except (requests.exceptions.RequestException, requests.exceptions.Timeout) as req_err:
+        logger.error(f"Failed to get profile picture for {username} using stealth_requests: {str(req_err)}")
+        return None
+    except json.JSONDecodeError as json_err:
+        logger.error(f"Failed to parse JSON for {username} profile picture: {json_err}. Response text: {resp.text[:500] if 'resp' in locals() and resp else 'N/A'}...")
+        return None
+    except Exception as e:
+        logger.exception(f"Unexpected error getting profile picture for {username}: {str(e)}")
+        return None
+
 
 async def get_latest_subscriber(channel_id):
     """Get the latest Kick subscriber using stealth_requests."""
