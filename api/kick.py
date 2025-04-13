@@ -14,6 +14,7 @@ import logging
 from bs4 import BeautifulSoup, Tag # Import BeautifulSoup
 import stealth_requests as requests # Import stealth_requests
 import requests as standard_requests # Import standard requests for exceptions, Timeout
+from api import settings # Import settings module for command customization
 
 # Set up logging
 # logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s') # Example basic config
@@ -842,8 +843,9 @@ async def stream_messages(channel_name):
                     message_queue.task_done()
                     continue
 
-                # Check for !enter command
-                if content.strip().lower() == "!enter":
+                # Check for enter command (using custom command name from settings)
+                enter_command = settings.get_setting("commands.enter", "!enter")
+                if content.strip().lower() == enter_command.lower():
                     await handle_enter_command(sender)
 
                 message_data = {

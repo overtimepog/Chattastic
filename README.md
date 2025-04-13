@@ -9,7 +9,7 @@ Chattastic is an innovative tool designed for Twitch and Kick streamers and mode
 - **Text-to-Speech:** Read viewer messages aloud using TTS.
 - **Web Interface:** Access Chattastic from any device with a web browser.
 - **Filtering Options:** Select viewers based on criteria like VIP status, moderator status, subscriber status, and follower status.
-- **Raffle Mode:** Allow viewers to enter a raffle using the !enter command in chat.
+- **Raffle Mode:** Allow viewers to enter a raffle using customizable commands in chat.
 - **Persistent Settings:** Settings are saved to your local Chattastic folder and persist across restarts.
 - **Chat Overlay:** Display chat messages in your stream with customizable styles and animations.
 
@@ -54,6 +54,7 @@ Chattastic now saves settings to your local Chattastic folder, ensuring they per
 - **OBS Source Dimensions:** Set the dimensions of your browser source for optimal display
 - **Overlay Styles:** Customize the appearance of your chat overlay
 - **Screenshot Interval:** Control how frequently the desktop view is updated
+- **Command Customization:** Change the commands viewers use to interact with Chattastic (e.g., change "!enter" to "!join")
 
 To manage settings:
 1. Go to the Settings section in the web interface

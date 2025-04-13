@@ -45,6 +45,10 @@ DEFAULT_SETTINGS = {
     },
     "ui": {
         "dark_mode": True
+    },
+    "commands": {
+        "enter": "!enter"
+        # Add more commands here as needed
     }
 }
 

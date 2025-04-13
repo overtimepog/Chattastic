@@ -1054,6 +1054,17 @@ function initSettings() {
                 debugModeCheckbox.checked = settings.random_overlay.debug_mode;
             }
         }
+
+        // Apply command settings
+        if (settings.commands) {
+            const enterCommandInput = document.getElementById('enter-command');
+
+            if (enterCommandInput && settings.commands.enter) {
+                enterCommandInput.value = settings.commands.enter;
+            }
+
+            // Add more command settings here as needed
+        }
     }
 
     // Get settings location info
@@ -1162,6 +1173,10 @@ function initSettings() {
                 },
                 ui: {
                     dark_mode: localStorage.getItem('theme') === 'dark'
+                },
+                commands: {
+                    enter: document.getElementById('enter-command').value || '!enter'
+                    // Add more commands here as needed
                 }
             };
 
