@@ -1,6 +1,6 @@
 /**
  * Docker Desktop Viewer - Client-side JavaScript
- * 
+ *
  * Provides functionality for:
  * - Theme management (light/dark mode)
  * - WebSocket communication with the server
@@ -244,7 +244,18 @@ document.addEventListener('DOMContentLoaded', () => {
         if (data.path) {
             // Add a timestamp to prevent caching
             const timestamp = new Date().getTime();
-            desktopViewImg.src = `/${data.path}?t=${timestamp}`;
+
+            // Handle different path formats
+            let imgSrc;
+            if (data.path.includes('desktop_view.png')) {
+                // Use the dedicated screenshots mount point
+                imgSrc = `/screenshots/desktop_view.png?t=${timestamp}`;
+            } else {
+                // Use static-assets for other paths
+                imgSrc = `/static-assets/${data.path.replace(/^static\//, '')}?t=${timestamp}`;
+            }
+
+            desktopViewImg.src = imgSrc;
         }
 
         // Update status
@@ -307,16 +318,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /**
  * Toggle streaming mode for desktop view
- * 
+ *
  * When enabled, refreshes the screenshot at a higher frequency
  * for a more real-time view of the desktop.
  */
 function toggleStreamingMode() {
     window.streamingMode = !window.streamingMode;
-    
+
     const desktopViewContainer = document.getElementById('desktop-view-container');
     const statusIndicator = document.getElementById('connection-status');
-    
+
     if (window.streamingMode) {
         // Enable streaming mode
         if (desktopViewContainer) {
@@ -334,6 +345,7 @@ function toggleStreamingMode() {
             const timestamp = new Date().getTime();
             const desktopViewImg = document.getElementById('desktop-view-img');
             if (desktopViewImg) {
+                // Use the API endpoint directly to ensure proper handling
                 desktopViewImg.src = `/api/screenshot?force=true&t=${timestamp}`;
             }
         }, 200); // Very frequent updates for smoother streaming
@@ -358,7 +370,7 @@ function toggleStreamingMode() {
 
 /**
  * Force an immediate refresh of the desktop screenshot
- * 
+ *
  * Used when the normal update mechanism fails or when
  * an immediate update is needed.
  */
@@ -366,6 +378,7 @@ function emergencyRefresh() {
     const desktopViewImg = document.getElementById('desktop-view-img');
     if (desktopViewImg) {
         const timestamp = new Date().getTime();
+        // Use the API endpoint directly to ensure proper handling
         desktopViewImg.src = `/api/screenshot?force=true&emergency=true&t=${timestamp}`;
     }
 }

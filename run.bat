@@ -12,5 +12,3 @@ echo Access the web interface at http://localhost:8000
 echo.
 echo To view logs, run: docker-compose logs -f
 echo To stop the container, run: docker-compose down
-
-pause

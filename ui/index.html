@@ -175,17 +175,6 @@
 
     <h1>Docker Desktop Viewer</h1>
 
-    <ul class="nav-links">
-        <li><a href="/">Home</a></li>
-        <li><a href="/docker-logs">Docker Logs</a></li>
-    </ul>
-
-    <div id="status-section">
-        <h2>Status</h2>
-        <p>WebSocket Status: <span id="ws-status">Disconnected</span></p>
-    </div>
-
-
     <div id="desktop-view-section">
         <h2>Container Desktop View</h2>
         <p>View the container's desktop to see what's happening inside.</p>
@@ -212,20 +201,6 @@
                 <button onclick="document.getElementById('desktop-view-img').src='/api/screenshot?force=true'">Force Refresh</button>
                 <button onclick="toggleStreamingMode()">Toggle Streaming Mode</button>
                 <button onclick="emergencyRefresh()">Emergency Refresh</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="settings-section">
-        <h2>Settings</h2>
-        <div class="settings-container">
-            <div class="settings-group">
-                <h3>Screenshot Settings</h3>
-                <div class="control-row">
-                    <label for="screenshot-interval">Screenshot Interval (sec):</label>
-                    <input type="number" id="screenshot-interval" value="1.0" min="0.1" max="10" step="0.1">
-                    <button id="update-screenshot-interval-btn" class="small-button">Update</button>
-                </div>
             </div>
         </div>
     </div>

@@ -65,6 +65,8 @@ app = FastAPI(
 # Mount static files directories (for HTML, CSS, JS)
 app.mount("/static", StaticFiles(directory="ui"), name="static")
 app.mount("/static-assets", StaticFiles(directory="static"), name="static-assets")
+# Mount screenshots directory directly to avoid 404 errors
+app.mount("/screenshots", StaticFiles(directory="static/screenshots"), name="screenshots")
 
 class ConnectionManager:
     """
