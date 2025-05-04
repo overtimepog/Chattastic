@@ -1,18 +1,35 @@
-# Docker Desktop Viewer - Dependencies
+# Web UI dependencies
+Requests # Keep requests as it's used for API calls
 
-# Web UI and API dependencies
-requests>=2.31.0  # For API calls
-fastapi>=0.104.1  # Web framework
-uvicorn[standard]>=0.24.0  # ASGI server
-python-multipart>=0.0.6  # For form data with FastAPI
-websockets>=11.0.3  # For WebSocket support
+# Audio processing
+gTTS
+playsound@git+https://github.com/taconi/playsound
+sounddevice
+numpy
+soundfile
+pydub
 
 # Async HTTP requests
-aiohttp>=3.8.6  # Async HTTP client
-aiodns>=3.1.1  # DNS resolver for aiohttp
+aiohttp
+aiodns # Added for aiohttp resolver
+
+# FastAPI & Web Server
+fastapi
+uvicorn[standard]
+python-multipart # Often needed for form data with FastAPI
+websockets # Explicitly add for FastAPI WebSocket support
+selenium==4.10.0
+undetected-chromedriver==3.5.3 # For Kick chat scraping via Selenium
+
+# Optional: Keep DearPyGui for backward compatibility if needed
+# dearpygui
+# Removed: flask, flask_socketio
+
+# Stealth Requests for bypassing bot detection
+stealth-requests
+
+# HTML Parsing
+beautifulsoup4
 
 # Docker API
-docker>=6.1.3  # Docker SDK for Python
-
-# Utilities
-python-dateutil>=2.8.2  # Date parsing utilities
+docker

@@ -1,9 +1,10 @@
 # globals.py
-"""
-Module for sharing global instances across the application.
-Contains the WebSocket connection manager that is initialized in app.py.
-"""
+# Used for sharing instances like the WebSocket manager across modules
 
 # Placeholder for the ConnectionManager instance from app.py
-# This will be set during application startup
+# app.py will set this instance on startup.
 manager = None
+
+# Global dictionary to store Kick emote mappings { "emoteName": "path/to/emote.jpg", ... }
+# This will be populated by api/kick.py when connecting
+kick_emotes = {}

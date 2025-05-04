@@ -1,0 +1,89 @@
+/* Define CSS variables with default values */
+:root {
+    --chat-text-color: #ffffff;
+    --chat-username-color: #a0a0ff;
+    --chat-font-size: 16px;
+    --chat-text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+    --chat-bg-color: rgba(0, 0, 0, 0.5);
+    --chat-padding: 5px;
+    --chat-gap: 5px;
+    --chat-border-radius: 4px;
+    --chat-width: 800px;
+    --chat-height: 600px;
+    --chat-bottom-margin: 10px;
+}
+
+/* Basic reset and transparency */
+body {
+    background-color: transparent;
+    margin: 0;
+    padding: 10px 10px var(--chat-bottom-margin) 10px; /* Add padding with bottom margin variable */
+    font-family: Arial, sans-serif;
+    color: var(--chat-text-color); /* Use variable for text color */
+    overflow: hidden; /* Hide scrollbars */
+    height: 100vh; /* Ensure body takes full height */
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end; /* Align messages to the bottom */
+    box-sizing: border-box; /* Include padding in height calculation */
+}
+
+#chat-container {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: var(--chat-gap); /* Use variable for gap between messages */
+    /* Default flow: upwards (new messages at bottom) */
+    flex-direction: column;
+    justify-content: flex-end;
+}
+
+/* Class for downwards flow (new messages at top) */
+#chat-container.flow-downwards {
+    flex-direction: column-reverse;
+    justify-content: flex-start;
+}
+
+/* Default upwards flow doesn't strictly need a class, but added for clarity */
+#chat-container.flow-upwards {
+    flex-direction: column;
+    justify-content: flex-end;
+}
+
+/* Random flow mode */
+#chat-container.flow-random {
+    display: block; /* Override flex display */
+    position: relative;
+    width: 100%;
+    height: 100%;
+}
+
+.chat-message {
+    background-color: var(--chat-bg-color); /* Use variable for background */
+    padding: var(--chat-padding) 10px; /* Use variable for vertical padding */
+    border-radius: var(--chat-border-radius); /* Use variable for border radius */
+    font-size: var(--chat-font-size); /* Use variable for font size */
+    text-shadow: var(--chat-text-shadow); /* Use variable for text shadow */
+    word-wrap: break-word; /* Wrap long words */
+}
+
+.chat-message strong {
+    font-weight: bold;
+    color: var(--chat-username-color); /* Use variable for username color */
+    margin-right: 5px;
+}
+
+/* Styling for emote images */
+.chat-emote {
+    height: 1.2em;
+    vertical-align: middle;
+    margin: 0 2px;
+}
+
+/* Random message styling */
+.random-message {
+    position: absolute;
+    z-index: 10;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+    max-width: 80%;
+}

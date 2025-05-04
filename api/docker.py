@@ -1,11 +1,6 @@
 """
-Docker API Module
-
-Provides functionality for interacting with Docker containers and streaming logs.
-Features:
-- Container listing and status monitoring
-- Log retrieval and real-time streaming
-- WebSocket integration for live updates
+Docker API module for Chattastic.
+Provides functions to interact with Docker containers and stream logs.
 """
 
 import asyncio

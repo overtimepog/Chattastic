@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Docker Desktop Viewer</title>
+    <title>Chattastic Web UI</title>
     <link rel="stylesheet" href="/static/style.css">
     <link rel="stylesheet" href="/static-assets/style.css">
     <!-- Add inline styles to ensure dark mode works -->
@@ -19,6 +19,8 @@
             --button-bg: #4CAF50;
             --button-color: white;
             --button-hover: #45a049;
+            --chat-bg: #f9f9f9;
+            --chat-message-odd: #f0f0f0;
             --status-bg: #f5f5f5;
             --link-color: #0066cc;
             --shadow-color: rgba(0, 0, 0, 0.1);
@@ -35,6 +37,8 @@
             --button-bg: #388E3C;
             --button-color: #f0f0f0;
             --button-hover: #2E7D32;
+            --chat-bg: #333333;
+            --chat-message-odd: #3a3a3a;
             --status-bg: #333333;
             --link-color: #4fc3f7;
             --shadow-color: rgba(0, 0, 0, 0.3);
@@ -76,31 +80,6 @@
 
         h1, h2, h3 {
             color: var(--header-color, #333333);
-        }
-
-        /* Navigation */
-        .nav-links {
-            display: flex;
-            justify-content: center;
-            margin: 20px 0;
-            padding: 0;
-            list-style: none;
-        }
-
-        .nav-links li {
-            margin: 0 10px;
-        }
-
-        .nav-links a {
-            color: var(--link-color);
-            text-decoration: none;
-            padding: 8px 15px;
-            border-radius: 4px;
-            transition: background-color 0.3s;
-        }
-
-        .nav-links a:hover {
-            background-color: var(--section-bg);
         }
     </style>
 
@@ -173,7 +152,74 @@
         });
     </script>
 
+<<<<<<< HEAD
     <h1>Docker Desktop Viewer</h1>
+=======
+    <h1>Chattastic Control Panel</h1>
+
+    <div id="status-section">
+        <h2>Status</h2>
+        <p>Twitch Authenticated: <span id="twitch-auth-status">No</span></p>
+        <p>Kick Authenticated: <span id="kick-auth-status">No</span></p>
+        <p>WebSocket Status: <span id="ws-status">Disconnected</span></p>
+    </div>
+
+    <div id="auth-section">
+        <h2>Authentication</h2>
+        <button id="auth-twitch-btn">Authenticate with Twitch</button>
+        <button id="auth-kick-btn">Authenticate with Kick</button>
+        <!-- Redirect handling might need specific backend logic -->
+        <p id="auth-message"></p>
+    </div>
+
+    <div id="channel-section">
+        <h2>Channel Selection</h2>
+        <label for="channel-input">Channel Name:</label>
+        <input type="text" id="channel-input" placeholder="Enter channel name">
+        <button id="connect-twitch-chat-btn">Connect Twitch Chat</button>
+        <button id="connect-kick-chat-btn">Connect Kick Chat</button>
+        <p>Current Twitch Channel: <span id="current-twitch-channel">None</span></p>
+        <p>Current Kick Channel: <span id="current-kick-channel">None</span></p>
+    </div>
+
+    <div id="viewer-section">
+        <h2>Viewers</h2>
+        <div class="selection-mode">
+            <label>Selection Mode:</label>
+            <input type="radio" id="random-mode" name="selection-mode" value="random" checked>
+            <label for="random-mode">Random Viewers</label>
+            <input type="radio" id="raffle-mode" name="selection-mode" value="raffle">
+            <label for="raffle-mode">Raffle (!enter)</label>
+        </div>
+        <label for="viewer-count-select">Number of Viewers:</label>
+        <select id="viewer-count-select">
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+        </select>
+        <button id="select-random-viewers-btn">Select Viewers</button>
+        <button id="clear-raffle-entries-btn">Clear Raffle Entries</button>
+        <p id="raffle-entries-count">Raffle Entries: 0</p>
+        <h3>Selected Viewers:</h3>
+        <ul id="selected-viewers-list">
+            <!-- Selected viewers will be listed here -->
+        </ul>
+        <h3>All Viewers:</h3>
+        <ul id="all-viewers-list">
+            <!-- All viewers will be listed here -->
+        </ul>
+    </div>
+
+    <div id="chat-section">
+        <h2>Chat Messages</h2>
+        <div id="chat-messages">
+            <!-- Chat messages will appear here -->
+        </div>
+    </div>
+
+>>>>>>> parent of 8ac15b1 (just container view)
 
     <div id="desktop-view-section">
         <h2>Container Desktop View</h2>
@@ -193,18 +239,197 @@
             </div>
 
             <div class="desktop-view-image-container">
-                <img id="desktop-view-img" src="/api/screenshot?force=true" alt="Container Desktop" style="max-width: 100%; border: 1px solid #ccc;"
-                     onerror="console.error('Error loading initial screenshot'); this.src='/api/screenshot?force=true&retry=true'">
+                <img id="desktop-view-img" src="/api/screenshot?t=init" alt="Container Desktop" style="max-width: 100%; border: 1px solid #ccc;"
+                     onerror="console.error('Error loading initial screenshot'); this.src='/api/screenshot?t=' + new Date().getTime() + '&retry=true&emergency=true'">
             </div>
 
             <div class="desktop-view-controls">
-                <button onclick="document.getElementById('desktop-view-img').src='/api/screenshot?force=true'">Force Refresh</button>
+                <button onclick="document.getElementById('desktop-view-img').src='/api/screenshot?t=' + new Date().getTime() + '&force=true'">Force Refresh</button>
                 <button onclick="toggleStreamingMode()">Toggle Streaming Mode</button>
                 <button onclick="emergencyRefresh()">Emergency Refresh</button>
             </div>
         </div>
     </div>
 
+<<<<<<< HEAD
+=======
+    <div id="audio-section">
+        <h2>Audio Control</h2>
+        <button id="speak-selected-btn">Speak Selected Viewer Messages</button>
+        <!-- Add more controls as needed -->
+    </div>
+
+    <div id="kick-overlay-control-section">
+        <h2>Kick Overlay Control</h2>
+        <button id="clear-kick-overlay-btn">Clear Overlay Messages</button>
+        <label for="kick-overlay-limit-input">Message Limit:</label>
+        <input type="number" id="kick-overlay-limit-input" value="15" min="1" max="50">
+        <button id="set-kick-overlay-limit-btn">Set Limit</button>
+        <br> <!-- Line break for spacing -->
+
+        <label>Message Flow:</label>
+        <input type="radio" id="flow-upwards" name="kick-overlay-flow" value="upwards" checked>
+        <label for="flow-upwards">Upwards (New at bottom)</label>
+        <input type="radio" id="flow-downwards" name="kick-overlay-flow" value="downwards">
+        <label for="flow-downwards">Downwards (New at top)</label>
+        <input type="radio" id="flow-random" name="kick-overlay-flow" value="random">
+        <label for="flow-random">Random Placement</label>
+        <br> <!-- Line break for spacing -->
+
+        <button id="show-overlay-url-btn">Show Overlay URL</button>
+        <button id="show-random-overlay-url-btn">Show Random Overlay URL</button>
+        <p id="overlay-url-display" style="display: none; margin-top: 5px; font-family: monospace; background-color: #eee; padding: 5px; border: 1px solid #ccc;"></p>
+
+        <h3>Overlay Appearance</h3>
+        <div class="overlay-customization">
+            <div class="customization-group">
+                <h4>Text Styling</h4>
+                <div class="control-row">
+                    <label for="overlay-text-color">Message Text Color:</label>
+                    <input type="color" id="overlay-text-color" value="#ffffff">
+                </div>
+                <div class="control-row">
+                    <label for="overlay-username-color">Username Color:</label>
+                    <input type="color" id="overlay-username-color" value="#a0a0ff">
+                </div>
+                <div class="control-row">
+                    <label for="overlay-font-size">Font Size (px):</label>
+                    <input type="number" id="overlay-font-size" value="16" min="10" max="32">
+                </div>
+                <div class="control-row">
+                    <label for="overlay-text-shadow">Text Shadow:</label>
+                    <select id="overlay-text-shadow">
+                        <option value="on">On</option>
+                        <option value="off">Off</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="customization-group">
+                <h4>Background & Layout</h4>
+                <div class="control-row">
+                    <label for="overlay-bg-color">Background Color:</label>
+                    <input type="color" id="overlay-bg-color" value="#000000">
+                </div>
+                <div class="control-row">
+                    <label for="overlay-bg-opacity">Background Opacity:</label>
+                    <input type="range" id="overlay-bg-opacity" min="0" max="1" step="0.1" value="0.5">
+                    <span id="overlay-bg-opacity-value">0.5</span>
+                </div>
+                <div class="control-row">
+                    <label for="overlay-padding">Message Padding (px):</label>
+                    <input type="number" id="overlay-padding" value="5" min="0" max="20">
+                </div>
+                <div class="control-row">
+                    <label for="overlay-gap">Gap Between Messages (px):</label>
+                    <input type="number" id="overlay-gap" value="5" min="0" max="20">
+                </div>
+                <div class="control-row">
+                    <label for="overlay-border-radius">Border Radius (px):</label>
+                    <input type="number" id="overlay-border-radius" value="4" min="0" max="20">
+                </div>
+            </div>
+
+            <div class="customization-group">
+                <h4>Browser Source Dimensions</h4>
+                <div class="control-row">
+                    <label for="overlay-width">Width (px):</label>
+                    <input type="number" id="overlay-width" value="800" min="100" max="3000">
+                </div>
+                <div class="control-row">
+                    <label for="overlay-height">Height (px):</label>
+                    <input type="number" id="overlay-height" value="600" min="100" max="3000">
+                </div>
+                <div class="control-row">
+                    <label for="overlay-bottom-margin">Bottom Margin (px):</label>
+                    <input type="number" id="overlay-bottom-margin" value="10" min="0" max="200">
+                </div>
+                <p class="help-text">Enter the dimensions of your browser source to prevent messages from being cut off.</p>
+            </div>
+
+            <div class="customization-group" id="random-mode-settings">
+                <h4>Random Mode Settings</h4>
+                <div class="control-row">
+                    <label for="random-message-duration">Message Duration (sec):</label>
+                    <input type="number" id="random-message-duration" value="5" min="1" max="60">
+                </div>
+                <div class="control-row">
+                    <label for="random-animation-duration">Animation Duration (ms):</label>
+                    <input type="number" id="random-animation-duration" value="500" min="100" max="2000" step="100">
+                </div>
+                <div class="control-row">
+                    <label for="random-max-messages">Max Messages:</label>
+                    <input type="number" id="random-max-messages" value="10" min="1" max="50">
+                </div>
+                <div class="control-row checkbox-row">
+                    <label for="random-debug-mode">Debug Mode:</label>
+                    <input type="checkbox" id="random-debug-mode">
+                    <button id="toggle-debug-mode-btn" class="small-button">Toggle Debug Mode</button>
+                    <span class="help-inline">Shows message boundaries to debug overlapping</span>
+                </div>
+                <p class="help-text">Settings for random placement mode. Messages will appear at random positions and disappear after the specified duration.</p>
+            </div>
+        </div>
+        <button id="apply-overlay-styles-btn">Apply Styles</button>
+        <button id="reset-overlay-styles-btn">Reset to Default</button>
+    </div>
+
+    <div id="settings-section">
+        <h2>Settings</h2>
+        <div class="settings-container">
+            <div class="settings-group">
+                <h3>Application Settings</h3>
+                <div id="settings-location-info" class="settings-info">
+                    <p>Checking settings location...</p>
+                </div>
+                <div class="button-group">
+                    <button id="save-settings-btn">Save All Settings</button>
+                    <button id="load-settings-btn">Load Settings</button>
+                </div>
+                <!-- Settings buttons are now handled by script.js -->
+                <div class="settings-export-import">
+                    <h4>Export/Import Settings</h4>
+                    <p>Export your settings to a file that can be imported into any Chattastic container.</p>
+                    <div class="button-group">
+                        <button id="export-settings-btn">Export Settings</button>
+                        <button id="import-settings-btn">Import Settings</button>
+                        <span id="export-status" style="display: none; margin-left: 10px;"></span>
+                    </div>
+                    <!-- Export/Import settings buttons are now handled by script.js -->
+                    <div id="export-result" class="settings-result hidden"></div>
+                    <div id="import-form" class="settings-form hidden">
+                        <form id="settings-upload-form" enctype="multipart/form-data">
+                            <input type="file" id="settings-file-input" name="file" accept=".json">
+                            <button type="submit" class="small-button">Upload</button>
+                            <button type="button" id="cancel-import-btn" class="small-button">Cancel</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <div class="settings-group">
+                <h3>Screenshot Settings</h3>
+                <div class="control-row">
+                    <label for="screenshot-interval">Screenshot Interval (sec):</label>
+                    <input type="number" id="screenshot-interval" value="1.0" min="0.1" max="10" step="0.1">
+                    <button id="update-screenshot-interval-btn" class="small-button">Update</button>
+                </div>
+            </div>
+
+            <div class="settings-group">
+                <h3>Command Settings</h3>
+                <p>Customize the commands that viewers can use in chat.</p>
+                <div class="control-row">
+                    <label for="enter-command">Enter Command:</label>
+                    <input type="text" id="enter-command" value="!enter" placeholder="!enter">
+                    <span class="help-inline">Command for viewers to enter the raffle</span>
+                </div>
+                <!-- Add more commands here as needed -->
+            </div>
+        </div>
+    </div>
+
+>>>>>>> parent of 8ac15b1 (just container view)
     <script src="/static/script.js"></script>
 </body>
 </html>

@@ -1,11 +1,3 @@
-"""
-Screenshot API Module
-
-Provides functionality for capturing and managing desktop screenshots.
-Captures screenshots from an X display and broadcasts them to connected clients.
-Includes automatic cleanup of old screenshots to prevent disk space issues.
-"""
-
 import os
 import time
 import logging

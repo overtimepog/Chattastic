@@ -1,10 +1,5 @@
 #!/bin/bash
-# Docker Desktop Viewer - Container Entrypoint Script
-# Sets up the X display environment and starts the application
-
 set -e
-
-echo "Starting Docker Desktop Viewer environment..."
 
 # Check if Xvfb is already running
 if [ -e /tmp/.X99-lock ]; then
@@ -19,13 +14,16 @@ if [ -e /tmp/.X99-lock ]; then
         # Kill any existing Xvfb processes
         pkill -9 Xvfb || true
 
-        # Start Xvfb with appropriate settings
+        # Start Xvfb with more robust settings
         echo "Starting Xvfb..."
         Xvfb :99 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset &
         sleep 3
     fi
 else
-    # Start Xvfb
+    # Kill any existing Xvfb processes
+    pkill -9 Xvfb || true
+
+    # Start Xvfb with more robust settings
     echo "Starting Xvfb..."
     Xvfb :99 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset &
     sleep 3
@@ -96,12 +94,12 @@ else
     echo "Chrome/Selenium may not function correctly without a window manager"
 fi
 
-# Create debug_screenshots directory if it doesn't exist
-if [ ! -d "debug_screenshots" ]; then
-    mkdir -p debug_screenshots
-    echo "Created debug_screenshots directory"
+# Create emote_cache directory if it doesn't exist
+if [ ! -d "emote_cache" ]; then
+    mkdir -p emote_cache
+    echo "Created emote_cache directory"
 fi
 
 # Run the application
-echo "Starting Docker Desktop Viewer application..."
-python start.py
+echo "Starting Chattastic application..."
+python run.py

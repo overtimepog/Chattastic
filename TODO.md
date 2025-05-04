@@ -17,6 +17,11 @@
 
    ✅ let the user pick commands, ie. allow "!enter" to be changed to "!join" or "!participate" or whatever the user wants (COMPLETED)
 
+<<<<<<< HEAD
+=======
+   all frontend to backend and backend to frontend calls should be through the webhooks system thats already in place + api calls when needed, and not direct calls to the backend
+
+>>>>>>> parent of 8ac15b1 (just container view)
    introduce more api endpoints to save settings like obs source dimentions and kick and twitch tokens and everything else, to, instead of the docker container, to somewhere the user wants like their desktop in a json, and allow users to then import settings
 
    allow for users to create new web overlays with its own set of controls and unique url, then allow that data to be saved to the chattastic folder and loaded via api
